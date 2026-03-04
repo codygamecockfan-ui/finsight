@@ -432,13 +432,78 @@ def run_agent(conversation_history: list) -> str:
 # ─────────────────────────────────────────────
 #  FLASK ROUTES
 # ─────────────────────────────────────────────
+APP_PASSWORD = os.getenv("APP_PASSWORD", "finsight2024")
+
+from flask import session
+app.secret_key = os.getenv("SECRET_KEY", "supersecretkey_changeme")
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = ""
+    if request.method == "POST":
+        if request.form.get("password") == APP_PASSWORD:
+            session["authenticated"] = True
+            return redirect("/")
+        error = "Incorrect password. Try again."
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>FinSight Login</title>
+        <style>
+            * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+            body {{ background: #0a0e1a; color: #e2e8f0; font-family: system-ui, sans-serif;
+                   display: flex; align-items: center; justify-content: center; height: 100vh; }}
+            .box {{ background: #111827; border: 1px solid #1f2d45; border-radius: 16px;
+                   padding: 40px; width: 340px; text-align: center; }}
+            .logo {{ width: 48px; height: 48px; background: linear-gradient(135deg, #00d4aa, #3b82f6);
+                    border-radius: 12px; display: flex; align-items: center; justify-content: center;
+                    font-size: 20px; font-weight: bold; color: #fff; margin: 0 auto 16px; }}
+            h1 {{ font-size: 1.4rem; margin-bottom: 6px; }}
+            p {{ color: #64748b; font-size: .85rem; margin-bottom: 24px; }}
+            input {{ width: 100%; background: #0a0e1a; border: 1px solid #1f2d45; color: #e2e8f0;
+                    padding: 12px 16px; border-radius: 10px; font-size: .95rem; margin-bottom: 12px; outline: none; }}
+            input:focus {{ border-color: #00d4aa; }}
+            button {{ width: 100%; background: linear-gradient(135deg, #00d4aa, #3b82f6);
+                     border: none; border-radius: 10px; color: #fff; padding: 12px;
+                     font-size: 1rem; font-weight: 600; cursor: pointer; }}
+            .error {{ color: #f87171; font-size: .82rem; margin-bottom: 12px; }}
+        </style>
+    </head>
+    <body>
+        <div class="box">
+            <div class="logo">FS</div>
+            <h1>FinSight</h1>
+            <p>Enter your password to continue</p>
+            {"<div class='error'>" + error + "</div>" if error else ""}
+            <form method="POST">
+                <input type="password" name="password" placeholder="Password" autofocus />
+                <button type="submit">Enter FinSight</button>
+            </form>
+        </div>
+    </body>
+    </html>
+    """
+
+from flask import redirect
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/login")
+
 @app.route("/")
 def index():
+    if not session.get("authenticated"):
+        return redirect("/login")
     return render_template("index.html")
 
 
 @app.route("/chat", methods=["POST"])
 def chat():
+    if not session.get("authenticated"):
+        return jsonify({"error": "Unauthorized"}), 401
+
     data = request.json
     history = data.get("history", [])
     user_message = data.get("message", "")
