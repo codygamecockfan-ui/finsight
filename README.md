@@ -1,0 +1,2 @@
+# finsight
+repo for claude
