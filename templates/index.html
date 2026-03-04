@@ -2,306 +2,316 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>FinSight — AI Financial Advisor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0a0e1a">
+  <title>FinSight</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
   <style>
     :root {
-      --bg:       #0a0e1a;
-      --surface:  #111827;
-      --border:   #1f2d45;
-      --accent:   #00d4aa;
-      --accent2:  #3b82f6;
-      --text:     #e2e8f0;
-      --muted:    #64748b;
-      --danger:   #f87171;
-      --user-bg:  #1e3a5f;
-      --ai-bg:    #111827;
+      --bg:      #0a0e1a;
+      --surface: #111827;
+      --border:  #1f2d45;
+      --accent:  #00d4aa;
+      --accent2: #3b82f6;
+      --text:    #e2e8f0;
+      --muted:   #64748b;
+      --danger:  #f87171;
+      --user-bg: #1e3a5f;
+      --ai-bg:   #111827;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
-    body {
+    html, body {
+      height: 100%;
+      height: -webkit-fill-available;
       background: var(--bg);
       color: var(--text);
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      overflow: hidden;
     }
 
-    /* ── Header ── */
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      height: -webkit-fill-available;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
     header {
       background: var(--surface);
       border-bottom: 1px solid var(--border);
-      padding: 14px 24px;
+      padding: 0 16px;
+      height: 60px;
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
       flex-shrink: 0;
     }
 
     .logo {
-      width: 38px; height: 38px;
+      width: 36px; height: 36px;
       background: linear-gradient(135deg, var(--accent), var(--accent2));
       border-radius: 10px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 18px; font-weight: bold; color: #fff;
+      font-size: 15px; font-weight: 800; color: #fff;
+      flex-shrink: 0;
     }
 
-    header h1 { font-size: 1.2rem; font-weight: 700; letter-spacing: .5px; }
-    header p  { font-size: .75rem; color: var(--muted); }
+    .header-text h1 { font-size: 1.05rem; font-weight: 700; }
+    .header-text p  { font-size: .68rem; color: var(--muted); margin-top: 1px; }
 
     .status-dot {
       margin-left: auto;
-      display: flex; align-items: center; gap: 6px;
-      font-size: .75rem; color: var(--accent);
+      display: flex; align-items: center; gap: 5px;
+      font-size: .72rem; color: var(--accent);
     }
     .dot {
-      width: 8px; height: 8px; border-radius: 50%;
+      width: 7px; height: 7px; border-radius: 50%;
       background: var(--accent);
       animation: pulse 2s infinite;
     }
-    @keyframes pulse {
-      0%,100% { opacity: 1; } 50% { opacity: .3; }
-    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
 
-    /* ── Quick Prompts ── */
     .quick-prompts {
-      display: flex; gap: 8px; flex-wrap: wrap;
-      padding: 12px 24px;
+      display: flex;
+      gap: 8px;
+      padding: 10px 16px;
+      overflow-x: auto;
       border-bottom: 1px solid var(--border);
       background: var(--surface);
       flex-shrink: 0;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
     }
+    .quick-prompts::-webkit-scrollbar { display: none; }
+
     .quick-btn {
-      background: transparent;
+      background: rgba(255,255,255,.04);
       border: 1px solid var(--border);
-      color: var(--muted);
+      color: var(--text);
       border-radius: 20px;
-      padding: 5px 14px;
-      font-size: .75rem;
+      padding: 7px 14px;
+      font-size: .78rem;
       cursor: pointer;
-      transition: all .2s;
       white-space: nowrap;
+      flex-shrink: 0;
+      -webkit-user-select: none;
     }
-    .quick-btn:hover {
+    .quick-btn:active {
+      background: rgba(0,212,170,.12);
       border-color: var(--accent);
       color: var(--accent);
+      transform: scale(.97);
     }
 
-    /* ── Chat ── */
     #chat {
       flex: 1;
       overflow-y: auto;
-      padding: 24px;
+      padding: 16px;
       display: flex;
       flex-direction: column;
-      gap: 20px;
-      scroll-behavior: smooth;
+      gap: 16px;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
     }
 
     .msg {
       display: flex;
-      gap: 12px;
-      max-width: 860px;
+      gap: 10px;
+      animation: fadeUp .2s ease;
     }
-    .msg.user  { align-self: flex-end; flex-direction: row-reverse; }
-    .msg.agent { align-self: flex-start; }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .msg.user  { align-self: flex-end; flex-direction: row-reverse; max-width: 88%; }
+    .msg.agent { align-self: flex-start; max-width: 96%; }
 
     .avatar {
-      width: 34px; height: 34px; border-radius: 50%;
+      width: 30px; height: 30px; border-radius: 50%;
       flex-shrink: 0; display: flex; align-items: center;
-      justify-content: center; font-size: .85rem; font-weight: bold;
+      justify-content: center; font-size: .72rem; font-weight: 700;
+      margin-top: 2px;
     }
     .msg.user  .avatar { background: var(--accent2); color: #fff; }
     .msg.agent .avatar { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
 
     .bubble {
-      padding: 14px 18px;
-      border-radius: 14px;
-      line-height: 1.65;
+      padding: 12px 15px;
+      border-radius: 18px;
+      line-height: 1.6;
       font-size: .9rem;
-      max-width: 100%;
+      word-break: break-word;
     }
-    .msg.user  .bubble { background: var(--user-bg); border-top-right-radius: 4px; }
-    .msg.agent .bubble {
-      background: var(--ai-bg);
-      border: 1px solid var(--border);
-      border-top-left-radius: 4px;
-    }
+    .msg.user  .bubble { background: var(--accent2); color: #fff; border-bottom-right-radius: 4px; }
+    .msg.agent .bubble { background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
 
-    /* Markdown styles inside bubbles */
-    .bubble h2, .bubble h3 { color: var(--accent); margin: 12px 0 6px; }
+    .bubble h2, .bubble h3 { color: var(--accent); margin: 14px 0 6px; font-size: .95rem; }
+    .bubble h2:first-child, .bubble h3:first-child { margin-top: 0; }
     .bubble strong { color: #fff; }
-    .bubble code {
-      background: #1a2a3a; padding: 2px 6px;
-      border-radius: 4px; font-size: .85em;
-    }
-    .bubble pre {
-      background: #1a2a3a; padding: 12px;
-      border-radius: 8px; overflow-x: auto;
-      margin: 8px 0;
-    }
-    .bubble ul, .bubble ol { padding-left: 20px; margin: 6px 0; }
-    .bubble li { margin-bottom: 4px; }
+    .bubble code { background: #1a2a3a; padding: 2px 6px; border-radius: 4px; font-size: .82em; }
+    .bubble pre { background: #1a2a3a; padding: 12px; border-radius: 8px; overflow-x: auto; margin: 8px 0; font-size: .82em; }
+    .bubble ul, .bubble ol { padding-left: 18px; margin: 6px 0; }
+    .bubble li { margin-bottom: 5px; }
     .bubble hr { border-color: var(--border); margin: 10px 0; }
-    .bubble em { color: var(--muted); font-style: normal; }
-    .bubble blockquote {
-      border-left: 3px solid var(--accent);
-      padding-left: 10px; margin: 8px 0;
-      color: var(--muted);
-    }
-    .bubble a { color: var(--accent2); }
+    .bubble em { color: var(--muted); font-style: italic; font-size: .85em; }
+    .bubble blockquote { border-left: 3px solid var(--accent); padding-left: 10px; margin: 8px 0; color: var(--muted); }
+    .bubble a { color: var(--accent); }
+    .bubble table { width: 100%; border-collapse: collapse; font-size: .82em; margin: 8px 0; }
+    .bubble th { background: #1a2a3a; padding: 6px 10px; text-align: left; color: var(--accent); }
+    .bubble td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
 
-    /* Disclaimer styling */
-    .bubble p:last-child em {
-      font-style: italic;
-      color: var(--muted);
-      font-size: .82rem;
-    }
-
-    /* Tool use indicator */
-    .tool-indicator {
-      font-size: .72rem;
-      color: var(--accent);
-      padding: 4px 10px;
-      background: rgba(0, 212, 170, .08);
-      border: 1px solid rgba(0, 212, 170, .2);
-      border-radius: 20px;
-      display: inline-block;
-      margin-bottom: 8px;
-    }
-
-    /* Typing indicator */
-    .typing .bubble {
-      display: flex; align-items: center; gap: 6px;
-      padding: 14px 20px;
-    }
-    .typing-dot {
-      width: 7px; height: 7px; border-radius: 50%;
-      background: var(--accent);
-      animation: bounce .8s infinite;
-    }
+    .typing .bubble { display: flex; align-items: center; gap: 5px; padding: 14px 18px; }
+    .typing-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: bounce .8s infinite; }
     .typing-dot:nth-child(2) { animation-delay: .15s; }
     .typing-dot:nth-child(3) { animation-delay: .30s; }
-    @keyframes bounce {
-      0%,100% { transform: translateY(0); }
-      50%      { transform: translateY(-5px); }
-    }
+    @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-5px)} }
 
-    /* ── Input ── */
-    .input-area {
-      border-top: 1px solid var(--border);
+    .input-wrapper {
       background: var(--surface);
-      padding: 16px 24px;
-      display: flex;
-      gap: 12px;
-      align-items: flex-end;
+      border-top: 1px solid var(--border);
+      padding: 10px 12px;
+      padding-bottom: max(10px, env(safe-area-inset-bottom));
       flex-shrink: 0;
     }
+
+    .input-row { display: flex; gap: 8px; align-items: flex-end; }
 
     textarea {
       flex: 1;
       background: var(--bg);
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: 22px;
       color: var(--text);
-      font-size: .9rem;
-      padding: 12px 16px;
+      font-size: 1rem;
+      padding: 11px 16px;
       resize: none;
       outline: none;
-      min-height: 48px;
-      max-height: 160px;
-      line-height: 1.5;
+      min-height: 44px;
+      max-height: 120px;
+      line-height: 1.4;
       font-family: inherit;
       transition: border-color .2s;
+      -webkit-appearance: none;
     }
     textarea:focus { border-color: var(--accent); }
     textarea::placeholder { color: var(--muted); }
 
-    button#sendBtn {
+    .send-btn {
       background: linear-gradient(135deg, var(--accent), var(--accent2));
-      border: none; border-radius: 12px;
-      width: 48px; height: 48px;
+      border: none; border-radius: 50%;
+      width: 44px; height: 44px;
       cursor: pointer;
       display: flex; align-items: center; justify-content: center;
       flex-shrink: 0;
-      transition: opacity .2s, transform .1s;
     }
-    button#sendBtn:hover   { opacity: .85; }
-    button#sendBtn:active  { transform: scale(.95); }
-    button#sendBtn:disabled { opacity: .4; cursor: not-allowed; }
-    button#sendBtn svg { width: 20px; height: 20px; fill: #fff; }
+    .send-btn:active  { transform: scale(.92); }
+    .send-btn:disabled { opacity: .35; }
+    .send-btn svg { width: 18px; height: 18px; fill: #fff; }
 
     .clear-btn {
       background: transparent;
       border: 1px solid var(--border);
       color: var(--muted);
-      border-radius: 12px;
+      border-radius: 22px;
       padding: 0 14px;
-      height: 48px;
+      height: 44px;
       cursor: pointer;
-      font-size: .8rem;
-      transition: all .2s;
+      font-size: .78rem;
     }
-    .clear-btn:hover { border-color: var(--danger); color: var(--danger); }
+    .clear-btn:active { border-color: var(--danger); color: var(--danger); }
 
-    /* Disclaimer banner */
-    .disclaimer {
-      text-align: center;
-      padding: 6px;
-      font-size: .7rem;
-      color: var(--muted);
-      background: var(--bg);
+    .disclaimer { text-align: center; font-size: .65rem; color: #334155; padding: 4px 0 2px; }
+
+    .welcome-card {
+      background: linear-gradient(135deg, rgba(0,212,170,.08), rgba(59,130,246,.08));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px;
+      margin-bottom: 4px;
+    }
+    .welcome-card h2 { color: var(--accent); font-size: 1rem; margin-bottom: 10px; }
+    .welcome-card .tag {
+      display: inline-block;
+      background: rgba(0,212,170,.1);
+      border: 1px solid rgba(0,212,170,.2);
+      color: var(--accent);
+      border-radius: 12px;
+      padding: 3px 10px;
+      font-size: .75rem;
+      margin: 3px 3px 3px 0;
     }
 
-    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    @media (min-width: 640px) {
+      header { padding: 0 24px; }
+      .quick-prompts { padding: 10px 24px; flex-wrap: wrap; overflow-x: visible; }
+      #chat { padding: 20px 24px; }
+      .input-wrapper { padding: 14px 24px; }
+      .msg.user  { max-width: 75%; }
+      .msg.agent { max-width: 85%; }
+      .quick-btn:hover { background: rgba(0,212,170,.1); border-color: var(--accent); color: var(--accent); }
+    }
   </style>
 </head>
 <body>
+<div class="app">
+  <header>
+    <div class="logo">FS</div>
+    <div class="header-text">
+      <h1>FinSight</h1>
+      <p>AI Trading Advisor · Options · Macro · Geo</p>
+    </div>
+    <div class="status-dot"><div class="dot"></div> Live</div>
+  </header>
 
-<header>
-  <div class="logo">FS</div>
-  <div>
-    <h1>FinSight</h1>
-    <p>AI-Powered Financial Advisor · Options · Macro · Geopolitical Intelligence</p>
+  <div class="quick-prompts">
+    <button class="quick-btn" onclick="quickSend('What does the market look like today? Give me an overview of SPY, QQQ, and VIX.')">📊 Market</button>
+    <button class="quick-btn" onclick="quickSend('Give me a strong 0DTE or weekly call option trade idea right now.')">⚡ 0DTE Idea</button>
+    <button class="quick-btn" onclick="quickSend('What geopolitical events right now could impact the stock market?')">🌍 Geo Impact</button>
+    <button class="quick-btn" onclick="quickSend('Analyze NVDA — technicals, news, and a trade recommendation.')">🔬 NVDA</button>
+    <button class="quick-btn" onclick="quickSend('What is the Fed doing with interest rates and how should I position?')">🏦 Fed Watch</button>
+    <button class="quick-btn" onclick="quickSend('What are good ETFs for my Roth IRA right now?')">📈 Roth IRA</button>
   </div>
-  <div class="status-dot"><div class="dot"></div> Live</div>
-</header>
 
-<div class="quick-prompts">
-  <button class="quick-btn" onclick="quickSend('What does the market look like today? Give me an overview of SPY, QQQ, and VIX.')">📊 Market Overview</button>
-  <button class="quick-btn" onclick="quickSend('Give me a strong 0DTE or weekly call option trade idea right now based on current market conditions and news.')">⚡ 0DTE Trade Idea</button>
-  <button class="quick-btn" onclick="quickSend('What geopolitical events right now could impact the stock market? What sectors or trades do you see?')">🌍 Geo Impact</button>
-  <button class="quick-btn" onclick="quickSend('Analyze NVDA — give me technicals, news, and a trade recommendation with entry and exit points.')">🔬 Analyze NVDA</button>
-  <button class="quick-btn" onclick="quickSend('What is the Fed doing with interest rates and how should I position my portfolio around it?')">🏦 Fed Watch</button>
-</div>
-
-<div id="chat">
-  <div class="msg agent">
-    <div class="avatar">FS</div>
-    <div class="bubble">
-      <strong>Welcome to FinSight.</strong> 👋<br><br>
-      I'm your AI financial advisor with real-time access to market data, options chains, and financial news. I specialize in:<br><br>
-      • <strong>0DTE & weekly options calls</strong> with entry, target & stop levels<br>
-      • <strong>Geopolitical analysis</strong> and how global events move markets<br>
-      • <strong>Technical & fundamental analysis</strong> on any stock or ETF<br><br>
-      Ask me for a trade idea, market overview, or analysis on any ticker. What are you watching?
+  <div id="chat">
+    <div class="msg agent">
+      <div class="avatar">FS</div>
+      <div class="bubble">
+        <div class="welcome-card">
+          <h2>Howdy, Cody! 🤠</h2>
+          <span class="tag">0DTE Options</span>
+          <span class="tag">Weekly Calls</span>
+          <span class="tag">Macro</span>
+          <span class="tag">Geopolitical</span>
+          <span class="tag">Roth IRA</span>
+          <span class="tag">401k</span>
+        </div>
+        What are we tradin' today? Ask me anything or tap one of them buttons up top.
+      </div>
     </div>
   </div>
-</div>
 
-<div class="input-area">
-  <textarea id="userInput" placeholder="Ask FinSight anything... e.g. 'Give me a TSLA call option trade for this week'" rows="1"></textarea>
-  <button class="clear-btn" onclick="clearChat()">Clear</button>
-  <button id="sendBtn" onclick="sendMessage()">
-    <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
-  </button>
+  <div class="input-wrapper">
+    <div class="input-row">
+      <textarea id="userInput" placeholder="Ask FinSight anything..." rows="1"></textarea>
+      <button class="clear-btn" onclick="clearChat()">Clear</button>
+      <button class="send-btn" id="sendBtn" onclick="sendMessage()">
+        <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+      </button>
+    </div>
+    <div class="disclaimer">⚠️ Not financial advice. For educational purposes only.</div>
+  </div>
 </div>
-<div class="disclaimer">⚠️ Not financial advice. For educational purposes only. Always consult a licensed advisor.</div>
 
 <script>
   let conversationHistory = [];
@@ -309,15 +319,13 @@
   const input   = document.getElementById('userInput');
   const sendBtn = document.getElementById('sendBtn');
 
-  // Auto-resize textarea
   input.addEventListener('input', () => {
     input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
   });
 
-  // Send on Enter (Shift+Enter for newline)
   input.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 640) {
       e.preventDefault();
       sendMessage();
     }
@@ -325,30 +333,27 @@
 
   function quickSend(text) {
     input.value = text;
+    input.style.height = 'auto';
     sendMessage();
   }
 
   function scrollBottom() {
-    chat.scrollTop = chat.scrollHeight;
+    setTimeout(() => { chat.scrollTop = chat.scrollHeight; }, 50);
   }
 
   function addMessage(role, content) {
     const msg = document.createElement('div');
     msg.className = `msg ${role === 'user' ? 'user' : 'agent'}`;
-
     const avatar = document.createElement('div');
     avatar.className = 'avatar';
     avatar.textContent = role === 'user' ? 'You' : 'FS';
-
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
-
     if (role === 'assistant') {
       bubble.innerHTML = marked.parse(content);
     } else {
       bubble.textContent = content;
     }
-
     msg.appendChild(avatar);
     msg.appendChild(bubble);
     chat.appendChild(msg);
@@ -360,13 +365,7 @@
     const msg = document.createElement('div');
     msg.className = 'msg agent typing';
     msg.id = 'typing';
-    msg.innerHTML = `
-      <div class="avatar">FS</div>
-      <div class="bubble">
-        <div class="typing-dot"></div>
-        <div class="typing-dot"></div>
-        <div class="typing-dot"></div>
-      </div>`;
+    msg.innerHTML = `<div class="avatar">FS</div><div class="bubble"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>`;
     chat.appendChild(msg);
     scrollBottom();
   }
@@ -379,39 +378,32 @@
   async function sendMessage() {
     const text = input.value.trim();
     if (!text || sendBtn.disabled) return;
-
     input.value = '';
     input.style.height = 'auto';
     sendBtn.disabled = true;
-
+    input.blur();
     addMessage('user', text);
     conversationHistory.push({ role: 'user', content: text });
-
     addTypingIndicator();
-
     try {
       const res = await fetch('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text, history: conversationHistory.slice(0, -1) })
       });
-
       const data = await res.json();
       removeTypingIndicator();
-
       if (data.error) {
-        addMessage('assistant', `❌ Error: ${data.error}`);
+        addMessage('assistant', `❌ ${data.error}`);
       } else {
         addMessage('assistant', data.reply);
         conversationHistory.push({ role: 'assistant', content: data.reply });
       }
     } catch (err) {
       removeTypingIndicator();
-      addMessage('assistant', '❌ Connection error. Make sure the Flask server is running.');
+      addMessage('assistant', '❌ Connection error. Check your internet and try again.');
     }
-
     sendBtn.disabled = false;
-    input.focus();
   }
 
   function clearChat() {
@@ -419,6 +411,12 @@
     const msgs = chat.querySelectorAll('.msg:not(:first-child)');
     msgs.forEach(m => m.remove());
   }
+
+  function fixHeight() {
+    document.querySelector('.app').style.height = window.innerHeight + 'px';
+  }
+  window.addEventListener('resize', fixHeight);
+  fixHeight();
 </script>
 </body>
 </html>
