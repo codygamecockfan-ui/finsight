@@ -924,7 +924,7 @@ def chat():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/monitor")
+@app.route("/monitor"
 def monitor_status():
     with monitor_lock:
         return jsonify({
