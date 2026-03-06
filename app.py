@@ -19,8 +19,12 @@ ALPACA_SECRET_KEY  = os.getenv("ALPACA_SECRET_KEY")
 
 # Market data endpoint (same for paper + live)
 ALPACA_DATA_URL    = "https://data.alpaca.markets/v2"
+# Crypto data endpoint
+ALPACA_CRYPTO_URL  = "https://data.alpaca.markets/v1beta3/crypto/us"
 # Paper trading endpoint
 ALPACA_TRADING_URL = "https://paper-api.alpaca.markets/v2"
+# Known crypto tickers (bare symbol, no /USD)
+CRYPTO_SYMBOLS = {"BTC","ETH","SOL","DOGE","AVAX","LINK","MATIC","LTC","BCH","XRP","ADA"}
 
 ALPACA_HEADERS = {
     "APCA-API-KEY-ID":     ALPACA_API_KEY,
@@ -71,9 +75,12 @@ When recommending a stock buy or sell:
 
 ## PAPER TRADING EXECUTION
 You have the ability to place PAPER trades (simulated, no real money) via Alpaca.
+- Supports stocks, options, AND crypto (BTC, ETH, SOL, DOGE, etc.)
+- Crypto trades 24/7 — always available for testing even when markets are closed.
 - ALWAYS ask the user for confirmation AND dollar amount before placing any trade.
 - When a user says "place it", "execute", "do it", or confirms a trade, use place_paper_trade.
-- For stocks: use the dollar amount to calculate share quantity.
+- For stocks: use dollar amount to calculate whole share quantity.
+- For crypto: use notional dollar amount directly (fractional supported).
 - For options: use the option contract ticker from get_options_chain.
 - After placing, always show the order confirmation details.
 - Remind the user this is paper trading — no real money involved.
@@ -161,13 +168,13 @@ TOOLS = [
     },
     {
         "name": "place_paper_trade",
-        "description": "Place a PAPER trade (simulated, no real money) via Alpaca. Only call this after the user has explicitly confirmed the trade AND provided a dollar amount. Works for both stocks and options.",
+        "description": "Place a PAPER trade (simulated, no real money) via Alpaca. Only call this after the user has explicitly confirmed the trade AND provided a dollar amount. Works for stocks, options, and crypto.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "symbol": {
                     "type": "string",
-                    "description": "Stock ticker (e.g. AAPL) for stocks, or full option contract symbol (e.g. AAPL250321C00200000) for options"
+                    "description": "Stock ticker (e.g. AAPL), option contract symbol, or crypto symbol (e.g. BTC, ETH, SOL — no /USD needed)"
                 },
                 "side": {
                     "type": "string",
@@ -176,16 +183,16 @@ TOOLS = [
                 },
                 "dollar_amount": {
                     "type": "number",
-                    "description": "Dollar amount to invest. Used to calculate quantity for stocks. For options, this is max spend on contracts."
+                    "description": "Dollar amount to invest."
                 },
                 "asset_type": {
                     "type": "string",
-                    "enum": ["stock", "option"],
-                    "description": "Whether this is a stock or option trade"
+                    "enum": ["stock", "option", "crypto"],
+                    "description": "Whether this is a stock, option, or crypto trade"
                 },
                 "current_price": {
                     "type": "number",
-                    "description": "Current price of the stock or option premium. Used to calculate quantity."
+                    "description": "Current price of the asset. Used to estimate cost and calculate qty."
                 }
             },
             "required": ["symbol", "side", "dollar_amount", "asset_type", "current_price"]
@@ -218,8 +225,52 @@ TOOLS = [
 #  TOOL IMPLEMENTATIONS
 # ─────────────────────────────────────────────
 
+def get_crypto_price(symbol: str) -> dict:
+    """Real-time crypto quote via Alpaca crypto endpoint."""
+    symbol = symbol.upper().replace("/USD", "").replace("USD", "")
+    pair   = f"{symbol}/USD"
+    try:
+        snap_r = requests.get(
+            f"{ALPACA_CRYPTO_URL}/snapshots",
+            headers=ALPACA_HEADERS,
+            params={"symbols": pair},
+            timeout=10
+        )
+        data     = snap_r.json()
+        snap     = data.get("snapshots", {}).get(pair, {})
+        daily    = snap.get("dailyBar", {})
+        prev     = snap.get("prevDailyBar", {})
+        trade    = snap.get("latestTrade", {})
+        quote    = snap.get("latestQuote", {})
+
+        latest_price = trade.get("p") or daily.get("c")
+        prev_close   = prev.get("c")
+        change_pct   = round(((latest_price - prev_close) / prev_close) * 100, 2) if latest_price and prev_close else None
+
+        return {
+            "ticker":     pair,
+            "price":      latest_price,
+            "bid":        quote.get("bp"),
+            "ask":        quote.get("ap"),
+            "open":       daily.get("o"),
+            "high":       daily.get("h"),
+            "low":        daily.get("l"),
+            "prev_close": prev_close,
+            "change_pct": change_pct,
+            "volume":     daily.get("v"),
+            "timestamp":  trade.get("t", datetime.now().isoformat()),
+            "asset_type": "crypto",
+            "source":     "Alpaca Markets Crypto (real-time)"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def get_stock_price(ticker: str) -> dict:
-    ticker = ticker.upper()
+    ticker = ticker.upper().replace("/USD", "").replace("USD", "")
+    # Route crypto tickers to crypto endpoint
+    if ticker in CRYPTO_SYMBOLS:
+        return get_crypto_price(ticker)
     try:
         trade_r = requests.get(f"{ALPACA_DATA_URL}/stocks/{ticker}/trades/latest", headers=ALPACA_HEADERS, timeout=10)
         quote_r = requests.get(f"{ALPACA_DATA_URL}/stocks/{ticker}/quotes/latest", headers=ALPACA_HEADERS, timeout=10)
@@ -247,6 +298,7 @@ def get_stock_price(ticker: str) -> dict:
             "change_pct": change_pct,
             "volume":     daily.get("v"),
             "timestamp":  trade.get("t", datetime.now().isoformat()),
+            "asset_type": "stock",
             "source":     "Alpaca Markets (real-time)"
         }
     except Exception as e:
@@ -397,37 +449,58 @@ def get_stock_technicals(ticker: str, days: int = 30) -> dict:
 
 
 def place_paper_trade(symbol: str, side: str, dollar_amount: float, asset_type: str, current_price: float) -> dict:
-    symbol = symbol.upper()
+    symbol = symbol.upper().replace("/USD", "").replace("USD", "")
     try:
-        if asset_type == "stock":
+        if asset_type == "crypto":
+            # Crypto supports fractional — use notional (dollar amount) directly
+            order_data = {
+                "symbol":        f"{symbol}/USD",
+                "notional":      str(round(dollar_amount, 2)),
+                "side":          side,
+                "type":          "market",
+                "time_in_force": "ioc"  # Immediate or cancel for crypto
+            }
+            estimated_cost = dollar_amount
+            qty_display    = f"~{round(dollar_amount / current_price, 6)} {symbol}"
+        elif asset_type == "stock":
             qty = int(dollar_amount / current_price)
             if qty < 1:
                 return {"error": f"${dollar_amount} is too small to buy 1 share at ${current_price:.2f}. Need at least ${current_price:.2f}."}
+            order_data = {
+                "symbol":        symbol,
+                "qty":           str(qty),
+                "side":          side,
+                "type":          "market",
+                "time_in_force": "day"
+            }
+            estimated_cost = qty * current_price
+            qty_display    = str(qty)
         else:
+            # Options
             cost_per_contract = current_price * 100
             qty = int(dollar_amount / cost_per_contract)
             if qty < 1:
                 return {"error": f"${dollar_amount} is too small for 1 contract at ${current_price} premium (${cost_per_contract:.2f}/contract)."}
-
-        order_data = {
-            "symbol":        symbol,
-            "qty":           str(qty),
-            "side":          side,
-            "type":          "market",
-            "time_in_force": "day"
-        }
+            order_data = {
+                "symbol":        symbol,
+                "qty":           str(qty),
+                "side":          side,
+                "type":          "market",
+                "time_in_force": "day"
+            }
+            estimated_cost = qty * cost_per_contract
+            qty_display    = str(qty)
 
         r      = requests.post(f"{ALPACA_TRADING_URL}/orders", headers=ALPACA_HEADERS, json=order_data, timeout=10)
         result = r.json()
 
         if "id" in result:
-            estimated_cost = float(result["qty"]) * current_price * (100 if asset_type == "option" else 1)
             return {
                 "status":         "✅ PAPER ORDER PLACED",
                 "order_id":       result["id"],
                 "symbol":         result["symbol"],
                 "side":           result["side"],
-                "qty":            result["qty"],
+                "qty":            qty_display,
                 "type":           result["type"],
                 "submitted_at":   result.get("submitted_at"),
                 "estimated_cost": f"${estimated_cost:.2f}",
