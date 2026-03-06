@@ -888,11 +888,14 @@ monitor_thread.start()
 # ─────────────────────────────────────────────
 def run_agent(conversation_history: list) -> str:
     messages = conversation_history.copy()
+    # Inject current time so Claude never guesses
+    current_time = datetime.now().strftime("%Y-%m-%d %I:%M %p ET")
+    system_with_time = SYSTEM_PROMPT + f"\n\n## CURRENT TIME\nThe current date and time is {current_time}. Always use this as your reference — never estimate or guess the time."
     while True:
         response = client.messages.create(
             model="claude-sonnet-4-5",
             max_tokens=4096,
-            system=SYSTEM_PROMPT,
+            system=system_with_time,
             tools=TOOLS,
             messages=messages
         )
