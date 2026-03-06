@@ -521,7 +521,9 @@ def run_tool(tool_name: str, tool_input: dict) -> str:
     }
     handler = handlers.get(tool_name)
     result  = handler() if handler else {"error": f"Unknown tool: {tool_name}"}
-    return json.dumps(result)
+    output  = json.dumps(result)
+    # Anthropic requires non-empty tool result content
+    return output if output else json.dumps({"error": "Tool returned empty response"})
 
 
 # ─────────────────────────────────────────────
@@ -547,12 +549,14 @@ def run_agent(conversation_history: list) -> str:
             for block in response.content:
                 if block.type == "tool_use":
                     print(f"[FinSight] Tool: {block.name} | Input: {block.input}")
+                    content = run_tool(block.name, block.input)
                     tool_results.append({
                         "type":        "tool_result",
                         "tool_use_id": block.id,
-                        "content":     run_tool(block.name, block.input)
+                        "content":     content or json.dumps({"error": "Empty response"})
                     })
-            messages.append({"role": "user", "content": tool_results})
+            if tool_results:
+                messages.append({"role": "user", "content": tool_results})
         else:
             return "\n".join(b.text for b in response.content if hasattr(b, "text")) or "Unexpected error."
 
