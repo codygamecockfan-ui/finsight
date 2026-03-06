@@ -4,14 +4,17 @@ import sqlite3
 import requests
 import threading
 import time
+import hashlib
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from functools import wraps
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(24))
 client = Anthropic()
 
 ANTHROPIC_API_KEY  = os.getenv("ANTHROPIC_API_KEY")
@@ -912,14 +915,49 @@ def run_agent(conversation_history: list) -> str:
 
 
 # ─────────────────────────────────────────────
+#  AUTH
+# ─────────────────────────────────────────────
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("authenticated"):
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        password     = request.form.get("password", "")
+        app_password = os.getenv("APP_PASSWORD", "")
+        if app_password and hash_password(password) == hash_password(app_password):
+            session["authenticated"] = True
+            session.permanent = False
+            return redirect(url_for("index"))
+        error = "Invalid password."
+    return render_template("login.html", error=error)
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+# ─────────────────────────────────────────────
 #  FLASK ROUTES
 # ─────────────────────────────────────────────
 @app.route("/")
+@login_required
 def index():
     return render_template("index.html")
 
 
 @app.route("/chat", methods=["POST"])
+@login_required
 def chat():
     data         = request.json
     history      = data.get("history", [])
@@ -936,6 +974,7 @@ def chat():
 
 
 @app.route("/monitor")
+@login_required
 def monitor_status():
     with monitor_lock:
         return jsonify({
@@ -949,6 +988,7 @@ def monitor_status():
 
 
 @app.route("/trades")
+@login_required
 def trades_dashboard():
     trades  = db_get_all_trades()
     summary = db_get_performance_summary()
@@ -956,6 +996,7 @@ def trades_dashboard():
 
 
 @app.route("/api/trades")
+@login_required
 def api_trades():
     return jsonify({"trades": db_get_all_trades(), "summary": db_get_performance_summary()})
 
