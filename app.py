@@ -699,8 +699,8 @@ def get_paper_account() -> dict:
 
 
 def close_paper_position(symbol: str) -> dict:
-    symbol     = symbol.upper().replace("/USD","")
-    api_symbol = f"{symbol}/USD" if symbol in CRYPTO_SYMBOLS else symbol
+    symbol     = symbol.upper().replace("/USD","").replace("USD","")
+    api_symbol = f"{symbol}%2FUSD" if symbol in CRYPTO_SYMBOLS else symbol
     try:
         r      = requests.delete(f"{ALPACA_TRADING_URL}/positions/{api_symbol}", headers=ALPACA_HEADERS, timeout=10)
         # Alpaca returns 204 No Content on successful crypto close
@@ -787,7 +787,8 @@ def get_current_price_for_monitor(symbol: str, asset_type: str):
 
 
 def auto_close_position(symbol: str, asset_type: str, reason: str, exit_price: float = 0):
-    api_symbol = f"{symbol}/USD" if asset_type == "crypto" else symbol
+    symbol     = symbol.upper().replace("/USD","").replace("USD","")
+    api_symbol = f"{symbol}%2FUSD" if asset_type == "crypto" else symbol
     try:
         r = requests.delete(f"{ALPACA_TRADING_URL}/positions/{api_symbol}", headers=ALPACA_HEADERS, timeout=10)
         # Alpaca returns 204 No Content on successful crypto position close
