@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinSight — Trade Journal</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', sans-serif; min-height: 100vh; }
+
+    header {
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { color: #00d4aa; font-size: 1.4rem; font-weight: 700; }
+    header a { color: #58a6ff; text-decoration: none; font-size: 0.9rem; }
+    header a:hover { text-decoration: underline; }
+
+    .container { max-width: 1400px; margin: 0 auto; padding: 32px; }
+
+    /* STAT CARDS */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+    .stat-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+    .stat-card .label { color: #8b949e; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+    .stat-card .value { font-size: 1.6rem; font-weight: 700; }
+    .stat-card .value.green  { color: #3fb950; }
+    .stat-card .value.red    { color: #f85149; }
+    .stat-card .value.yellow { color: #d29922; }
+    .stat-card .value.teal   { color: #00d4aa; }
+
+    /* CHARTS ROW */
+    .charts-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+    .chart-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 24px;
+    }
+    .chart-card h3 { color: #8b949e; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; }
+    .chart-wrap { position: relative; height: 200px; }
+
+    /* BREAKDOWN TABLES */
+    .breakdown-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+    .breakdown-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 24px;
+    }
+    .breakdown-card h3 { color: #8b949e; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; }
+    .breakdown-card table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    .breakdown-card th { color: #8b949e; text-align: left; padding: 8px 12px; border-bottom: 1px solid #30363d; font-weight: 500; }
+    .breakdown-card td { padding: 10px 12px; border-bottom: 1px solid #21262d; }
+    .breakdown-card tr:last-child td { border-bottom: none; }
+
+    /* TRADE TABLE */
+    .trade-table-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 24px;
+      overflow-x: auto;
+    }
+    .trade-table-card h3 { color: #8b949e; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; }
+    table.trades { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    table.trades th { color: #8b949e; text-align: left; padding: 10px 12px; border-bottom: 1px solid #30363d; font-weight: 500; white-space: nowrap; }
+    table.trades td { padding: 12px; border-bottom: 1px solid #21262d; vertical-align: top; }
+    table.trades tr:last-child td { border-bottom: none; }
+    table.trades tr:hover td { background: #1c2128; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge.open    { background: #1f3a5c; color: #58a6ff; }
+    .badge.closed  { background: #1a2b1a; color: #3fb950; }
+    .badge.stock   { background: #2d1f5c; color: #bc8cff; }
+    .badge.crypto  { background: #3a2a10; color: #d29922; }
+    .badge.option  { background: #1a3030; color: #00d4aa; }
+    .badge.buy     { background: #1a2b1a; color: #3fb950; }
+    .badge.sell    { background: #2b1a1a; color: #f85149; }
+
+    .pnl.pos { color: #3fb950; font-weight: 600; }
+    .pnl.neg { color: #f85149; font-weight: 600; }
+    .pnl.neu { color: #8b949e; }
+
+    .thesis-cell { max-width: 200px; color: #8b949e; font-size: 0.78rem; line-height: 1.4; }
+    .empty-state { text-align: center; padding: 60px; color: #8b949e; }
+    .empty-state .icon { font-size: 3rem; margin-bottom: 16px; }
+
+    @media (max-width: 768px) {
+      .charts-row, .breakdown-row { grid-template-columns: 1fr; }
+      .container { padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>📊 FinSight — Trade Journal</h1>
+  <a href="/">← Back to Chat</a>
+</header>
+
+<div class="container">
+
+  <!-- STAT CARDS -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="label">Total Trades</div>
+      <div class="value teal">{{ summary.total_trades }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Win Rate</div>
+      <div class="value {% if summary.win_rate_pct >= 50 %}green{% else %}red{% endif %}">
+        {{ summary.win_rate_pct }}%
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Total P&L</div>
+      <div class="value {% if summary.total_pnl >= 0 %}green{% else %}red{% endif %}">
+        {% if summary.total_pnl >= 0 %}+{% endif %}${{ "%.2f"|format(summary.total_pnl) }}
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Avg P&L %</div>
+      <div class="value {% if summary.avg_pnl_pct >= 0 %}green{% else %}red{% endif %}">
+        {% if summary.avg_pnl_pct >= 0 %}+{% endif %}{{ "%.2f"|format(summary.avg_pnl_pct) }}%
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Winners</div>
+      <div class="value green">{{ summary.winners }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Losers</div>
+      <div class="value red">{{ summary.losers }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Best Trade</div>
+      <div class="value green">+${{ "%.2f"|format(summary.best_trade_pnl) }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Worst Trade</div>
+      <div class="value red">${{ "%.2f"|format(summary.worst_trade_pnl) }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Avg Hold Time</div>
+      <div class="value yellow">{{ summary.avg_time_held_min }}m</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Open Positions</div>
+      <div class="value teal">{{ summary.open_trades }}</div>
+    </div>
+  </div>
+
+  <!-- CHARTS -->
+  {% if trades %}
+  <div class="charts-row">
+    <div class="chart-card">
+      <h3>Cumulative P&L</h3>
+      <div class="chart-wrap">
+        <canvas id="pnlChart"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <h3>Win / Loss Distribution</h3>
+      <div class="chart-wrap">
+        <canvas id="winLossChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- BREAKDOWNS -->
+  <div class="breakdown-row">
+    {% if summary.by_asset_type %}
+    <div class="breakdown-card">
+      <h3>Performance by Asset Type</h3>
+      <table>
+        <thead>
+          <tr><th>Type</th><th>Trades</th><th>Wins</th><th>Avg P&L%</th><th>Total P&L</th></tr>
+        </thead>
+        <tbody>
+          {% for row in summary.by_asset_type %}
+          <tr>
+            <td><span class="badge {{ row.asset_type }}">{{ row.asset_type.upper() }}</span></td>
+            <td>{{ row.count }}</td>
+            <td>{{ row.wins }}</td>
+            <td class="pnl {% if row.avg_pnl_pct >= 0 %}pos{% else %}neg{% endif %}">
+              {% if row.avg_pnl_pct >= 0 %}+{% endif %}{{ "%.2f"|format(row.avg_pnl_pct) }}%
+            </td>
+            <td class="pnl {% if row.total_pnl >= 0 %}pos{% else %}neg{% endif %}">
+              {% if row.total_pnl >= 0 %}+{% endif %}${{ "%.2f"|format(row.total_pnl) }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {% if summary.by_exit_reason %}
+    <div class="breakdown-card">
+      <h3>Performance by Exit Reason</h3>
+      <table>
+        <thead>
+          <tr><th>Exit Reason</th><th>Count</th><th>Avg P&L%</th></tr>
+        </thead>
+        <tbody>
+          {% for row in summary.by_exit_reason %}
+          <tr>
+            <td>{{ row.exit_reason or "—" }}</td>
+            <td>{{ row.count }}</td>
+            <td class="pnl {% if row.avg_pnl_pct >= 0 %}pos{% else %}neg{% endif %}">
+              {% if row.avg_pnl_pct >= 0 %}+{% endif %}{{ "%.2f"|format(row.avg_pnl_pct) }}%
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- TRADE TABLE -->
+  <div class="trade-table-card">
+    <h3>All Trades</h3>
+    {% if trades %}
+    <table class="trades">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Symbol</th>
+          <th>Type</th>
+          <th>Side</th>
+          <th>Entry</th>
+          <th>Exit</th>
+          <th>P&L</th>
+          <th>P&L%</th>
+          <th>Hold Time</th>
+          <th>Exit Reason</th>
+          <th>Confidence</th>
+          <th>Thesis</th>
+          <th>Indicators</th>
+          <th>Status</th>
+          <th>Entry Time</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in trades %}
+        <tr>
+          <td>{{ t.id }}</td>
+          <td><strong>{{ t.symbol }}</strong></td>
+          <td><span class="badge {{ t.asset_type }}">{{ t.asset_type.upper() }}</span></td>
+          <td><span class="badge {{ t.side }}">{{ t.side.upper() }}</span></td>
+          <td>${{ "%.4f"|format(t.entry_price) }}</td>
+          <td>{% if t.exit_price %}${{ "%.4f"|format(t.exit_price) }}{% else %}—{% endif %}</td>
+          <td>
+            {% if t.pnl is not none %}
+              <span class="pnl {% if t.pnl >= 0 %}pos{% else %}neg{% endif %}">
+                {% if t.pnl >= 0 %}+{% endif %}${{ "%.2f"|format(t.pnl) }}
+              </span>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if t.pnl_pct is not none %}
+              <span class="pnl {% if t.pnl_pct >= 0 %}pos{% else %}neg{% endif %}">
+                {% if t.pnl_pct >= 0 %}+{% endif %}{{ "%.2f"|format(t.pnl_pct) }}%
+              </span>
+            {% else %}—{% endif %}
+          </td>
+          <td>{% if t.time_held_min %}{{ "%.1f"|format(t.time_held_min) }}m{% else %}—{% endif %}</td>
+          <td>{{ t.exit_reason or "—" }}</td>
+          <td>{% if t.confidence %}{{ t.confidence }}/10{% else %}—{% endif %}</td>
+          <td class="thesis-cell">{{ t.thesis or "—" }}</td>
+          <td class="thesis-cell">{{ t.indicators or "—" }}</td>
+          <td><span class="badge {{ t.status }}">{{ t.status.upper() }}</span></td>
+          <td style="white-space:nowrap; color:#8b949e; font-size:0.78rem;">
+            {{ t.entry_time[:16].replace("T"," ") if t.entry_time else "—" }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <div class="icon">📭</div>
+      <div>No trades yet. Head to the chat and place your first paper trade!</div>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+{% if trades %}
+<script>
+  // Build cumulative P&L data from closed trades (oldest first)
+  const allTrades = {{ trades | tojson }};
+  const closed = allTrades.filter(t => t.status === 'closed' && t.pnl !== null).reverse();
+
+  let cumPnl = 0;
+  const pnlLabels = [];
+  const pnlData   = [];
+  closed.forEach((t, i) => {
+    cumPnl += t.pnl;
+    pnlLabels.push(`#${t.id} ${t.symbol}`);
+    pnlData.push(parseFloat(cumPnl.toFixed(2)));
+  });
+
+  // Cumulative P&L line chart
+  if (pnlData.length > 0) {
+    const pnlCtx = document.getElementById('pnlChart').getContext('2d');
+    new Chart(pnlCtx, {
+      type: 'line',
+      data: {
+        labels: pnlLabels,
+        datasets: [{
+          label: 'Cumulative P&L ($)',
+          data: pnlData,
+          borderColor: pnlData[pnlData.length-1] >= 0 ? '#3fb950' : '#f85149',
+          backgroundColor: pnlData[pnlData.length-1] >= 0 ? 'rgba(63,185,80,0.1)' : 'rgba(248,81,73,0.1)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 3,
+          pointHoverRadius: 6
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#8b949e', maxRotation: 45 }, grid: { color: '#21262d' } },
+          y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }
+        }
+      }
+    });
+  }
+
+  // Win/Loss donut
+  const winners = allTrades.filter(t => t.pnl > 0).length;
+  const losers  = allTrades.filter(t => t.pnl < 0).length;
+  const open    = allTrades.filter(t => t.status === 'open').length;
+  const wlCtx   = document.getElementById('winLossChart').getContext('2d');
+  new Chart(wlCtx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Winners', 'Losers', 'Open'],
+      datasets: [{
+        data: [winners, losers, open],
+        backgroundColor: ['#3fb950', '#f85149', '#58a6ff'],
+        borderWidth: 0
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: '#8b949e', padding: 16 } }
+      },
+      cutout: '65%'
+    }
+  });
+</script>
+{% endif %}
+
+</body>
+</html>
