@@ -17,11 +17,15 @@ NEWS_API_KEY       = os.getenv("NEWS_API_KEY")
 ALPACA_API_KEY     = os.getenv("ALPACA_API_KEY")
 ALPACA_SECRET_KEY  = os.getenv("ALPACA_SECRET_KEY")
 
-# Alpaca base URL (paper + live data are the same endpoint for market data)
-ALPACA_DATA_URL = "https://data.alpaca.markets/v2"
-ALPACA_HEADERS  = {
+# Market data endpoint (same for paper + live)
+ALPACA_DATA_URL    = "https://data.alpaca.markets/v2"
+# Paper trading endpoint
+ALPACA_TRADING_URL = "https://paper-api.alpaca.markets/v2"
+
+ALPACA_HEADERS = {
     "APCA-API-KEY-ID":     ALPACA_API_KEY,
-    "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY
+    "APCA-API-SECRET-KEY": ALPACA_SECRET_KEY,
+    "Content-Type":        "application/json"
 }
 
 # ─────────────────────────────────────────────
@@ -65,6 +69,15 @@ When recommending a stock buy or sell:
 5. **Catalysts** – Upcoming events that could drive the move
 6. **Risk/Reward Ratio** – Always calculate and present this
 
+## PAPER TRADING EXECUTION
+You have the ability to place PAPER trades (simulated, no real money) via Alpaca.
+- ALWAYS ask the user for confirmation AND dollar amount before placing any trade.
+- When a user says "place it", "execute", "do it", or confirms a trade, use place_paper_trade.
+- For stocks: use the dollar amount to calculate share quantity.
+- For options: use the option contract ticker from get_options_chain.
+- After placing, always show the order confirmation details.
+- Remind the user this is paper trading — no real money involved.
+
 ## FOREIGN AFFAIRS & GEOPOLITICAL ANALYSIS
 You monitor and analyze:
 - Central bank policy globally (Fed, ECB, BOJ, PBOC, etc.)
@@ -80,16 +93,17 @@ Always explain HOW a geopolitical event translates into a specific market move o
 - Use structured formatting with headers and bullet points.
 - Be direct. Acknowledge uncertainty without being wishy-washy.
 - When a trade is risky or speculative, say so and recommend sizing small.
-- Always end trade recommendations with: ⚠️ *This is not financial advice. All trades carry risk. Please size positions appropriately and consult a licensed advisor for personalized guidance.*
+- Always end trade recommendations with: ⚠️ *This is PAPER trading only — no real money is used. Not financial advice. All trades carry risk.*
 
 ## WHAT YOU DO NOT DO
 - Do not give generic, non-actionable advice.
 - Do not recommend trades without a clear entry, target, and stop.
 - Do not present outdated data as current — always flag data age.
+- Do not place a trade without explicit user confirmation and a dollar amount.
 """
 
 # ─────────────────────────────────────────────
-#  TOOL DEFINITIONS (sent to Claude)
+#  TOOL DEFINITIONS
 # ─────────────────────────────────────────────
 TOOLS = [
     {
@@ -98,10 +112,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "ticker": {
-                    "type": "string",
-                    "description": "Stock ticker symbol e.g. AAPL, TSLA, SPY"
-                }
+                "ticker": {"type": "string", "description": "Stock ticker symbol e.g. AAPL, TSLA, SPY"}
             },
             "required": ["ticker"]
         }
@@ -112,68 +123,93 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "ticker": {
-                    "type": "string",
-                    "description": "Stock ticker symbol"
-                },
-                "expiration_date": {
-                    "type": "string",
-                    "description": "Options expiration date in YYYY-MM-DD format. Leave empty to get next available expirations."
-                },
-                "option_type": {
-                    "type": "string",
-                    "enum": ["call", "put"],
-                    "description": "Type of option"
-                }
+                "ticker": {"type": "string", "description": "Stock ticker symbol"},
+                "expiration_date": {"type": "string", "description": "Options expiration date in YYYY-MM-DD format. Leave empty for next 8 days."},
+                "option_type": {"type": "string", "enum": ["call", "put"], "description": "Type of option"}
             },
             "required": ["ticker", "option_type"]
         }
     },
     {
         "name": "get_financial_news",
-        "description": "Get the latest financial news for a company, sector, or topic. Use this to build trade thesis and identify catalysts.",
+        "description": "Get the latest financial news for a company, sector, or topic.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Search query e.g. 'Apple earnings', 'Federal Reserve interest rates', 'oil prices geopolitics'"
-                },
-                "num_articles": {
-                    "type": "integer",
-                    "description": "Number of articles to return (max 5)",
-                    "default": 3
-                }
+                "query": {"type": "string", "description": "Search query e.g. 'Apple earnings', 'Federal Reserve interest rates'"},
+                "num_articles": {"type": "integer", "description": "Number of articles to return (max 5)", "default": 3}
             },
             "required": ["query"]
         }
     },
     {
         "name": "get_market_overview",
-        "description": "Get a broad market overview including major indices (SPY, QQQ, DIA, IWM) with REAL-TIME prices. Use this for general market context.",
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-            "required": []
-        }
+        "description": "Get a broad market overview including major indices (SPY, QQQ, DIA, IWM) with REAL-TIME prices.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
     },
     {
         "name": "get_stock_technicals",
-        "description": "Get technical indicators and recent price history for a stock to assist with support/resistance and entry/exit analysis.",
+        "description": "Get technical indicators and recent price history for a stock.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "ticker": {
-                    "type": "string",
-                    "description": "Stock ticker symbol"
-                },
-                "days": {
-                    "type": "integer",
-                    "description": "Number of days of history to retrieve (default 30)",
-                    "default": 30
-                }
+                "ticker": {"type": "string", "description": "Stock ticker symbol"},
+                "days": {"type": "integer", "description": "Number of days of history (default 30)", "default": 30}
             },
             "required": ["ticker"]
+        }
+    },
+    {
+        "name": "place_paper_trade",
+        "description": "Place a PAPER trade (simulated, no real money) via Alpaca. Only call this after the user has explicitly confirmed the trade AND provided a dollar amount. Works for both stocks and options.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "Stock ticker (e.g. AAPL) for stocks, or full option contract symbol (e.g. AAPL250321C00200000) for options"
+                },
+                "side": {
+                    "type": "string",
+                    "enum": ["buy", "sell"],
+                    "description": "Buy or sell"
+                },
+                "dollar_amount": {
+                    "type": "number",
+                    "description": "Dollar amount to invest. Used to calculate quantity for stocks. For options, this is max spend on contracts."
+                },
+                "asset_type": {
+                    "type": "string",
+                    "enum": ["stock", "option"],
+                    "description": "Whether this is a stock or option trade"
+                },
+                "current_price": {
+                    "type": "number",
+                    "description": "Current price of the stock or option premium. Used to calculate quantity."
+                }
+            },
+            "required": ["symbol", "side", "dollar_amount", "asset_type", "current_price"]
+        }
+    },
+    {
+        "name": "get_paper_positions",
+        "description": "Get all current open positions in the paper trading account.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "get_paper_account",
+        "description": "Get paper trading account balance, buying power, and portfolio value.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "close_paper_position",
+        "description": "Close an open paper trade position. Use this when the user wants to exit a trade.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "The ticker symbol of the position to close"}
+            },
+            "required": ["symbol"]
         }
     }
 ]
@@ -183,54 +219,41 @@ TOOLS = [
 # ─────────────────────────────────────────────
 
 def get_stock_price(ticker: str) -> dict:
-    """Real-time quote via Alpaca Markets free tier."""
     ticker = ticker.upper()
     try:
-        # Latest trade (most recent real-time print)
-        trade_url = f"{ALPACA_DATA_URL}/stocks/{ticker}/trades/latest"
-        trade_r = requests.get(trade_url, headers=ALPACA_HEADERS, timeout=10)
-        trade_data = trade_r.json()
+        trade_r = requests.get(f"{ALPACA_DATA_URL}/stocks/{ticker}/trades/latest", headers=ALPACA_HEADERS, timeout=10)
+        quote_r = requests.get(f"{ALPACA_DATA_URL}/stocks/{ticker}/quotes/latest", headers=ALPACA_HEADERS, timeout=10)
+        snap_r  = requests.get(f"{ALPACA_DATA_URL}/stocks/{ticker}/snapshot",      headers=ALPACA_HEADERS, timeout=10)
 
-        # Latest quote (bid/ask)
-        quote_url = f"{ALPACA_DATA_URL}/stocks/{ticker}/quotes/latest"
-        quote_r = requests.get(quote_url, headers=ALPACA_HEADERS, timeout=10)
-        quote_data = quote_r.json()
+        trade = trade_r.json().get("trade", {})
+        quote = quote_r.json().get("quote", {})
+        snap  = snap_r.json()
+        daily = snap.get("dailyBar", {})
+        prev  = snap.get("prevDailyBar", {})
 
-        # Snapshot (includes daily open, high, low, prev close, change %)
-        snap_url = f"{ALPACA_DATA_URL}/stocks/{ticker}/snapshot"
-        snap_r = requests.get(snap_url, headers=ALPACA_HEADERS, timeout=10)
-        snap_data = snap_r.json()
-
-        trade  = trade_data.get("trade", {})
-        quote  = quote_data.get("quote", {})
-        snap   = snap_data.get("dailyBar", {})
-        prev   = snap_data.get("prevDailyBar", {})
-
-        latest_price = trade.get("p") or snap.get("c")
+        latest_price = trade.get("p") or daily.get("c")
         prev_close   = prev.get("c")
         change_pct   = round(((latest_price - prev_close) / prev_close) * 100, 2) if latest_price and prev_close else None
 
         return {
-            "ticker":      ticker,
-            "price":       latest_price,
-            "bid":         quote.get("bp"),
-            "ask":         quote.get("ap"),
-            "open":        snap.get("o"),
-            "high":        snap.get("h"),
-            "low":         snap.get("l"),
-            "prev_close":  prev_close,
-            "change_pct":  change_pct,
-            "volume":      snap.get("v"),
-            "timestamp":   trade.get("t", datetime.now().isoformat()),
-            "source":      "Alpaca Markets (real-time)",
-            "note":        "Price reflects the latest real-time trade."
+            "ticker":     ticker,
+            "price":      latest_price,
+            "bid":        quote.get("bp"),
+            "ask":        quote.get("ap"),
+            "open":       daily.get("o"),
+            "high":       daily.get("h"),
+            "low":        daily.get("l"),
+            "prev_close": prev_close,
+            "change_pct": change_pct,
+            "volume":     daily.get("v"),
+            "timestamp":  trade.get("t", datetime.now().isoformat()),
+            "source":     "Alpaca Markets (real-time)"
         }
     except Exception as e:
         return {"error": str(e)}
 
 
 def get_options_chain(ticker: str, option_type: str, expiration_date: str = None) -> dict:
-    """Options chain via Polygon (Alpaca doesn't provide options data)."""
     ticker = ticker.upper()
     params = {
         "underlying_ticker": ticker,
@@ -245,50 +268,40 @@ def get_options_chain(ticker: str, option_type: str, expiration_date: str = None
     else:
         params["expiration_date.gte"] = datetime.now().strftime("%Y-%m-%d")
         params["expiration_date.lte"] = (datetime.now() + timedelta(days=8)).strftime("%Y-%m-%d")
-
-    url = "https://api.polygon.io/v3/reference/options/contracts"
     try:
-        r = requests.get(url, params=params, timeout=10)
-        data = r.json()
-        contracts = data.get("results", [])
+        r         = requests.get("https://api.polygon.io/v3/reference/options/contracts", params=params, timeout=10)
+        contracts = r.json().get("results", [])
         if not contracts:
             return {"error": "No options contracts found. Try a different expiration or ticker."}
         return {
-            "ticker":           ticker,
-            "option_type":      option_type,
-            "contracts_found":  len(contracts),
+            "ticker":          ticker,
+            "option_type":     option_type,
+            "contracts_found": len(contracts),
             "contracts": [
                 {
-                    "contract_ticker":    c.get("ticker"),
-                    "strike":             c.get("strike_price"),
-                    "expiration":         c.get("expiration_date"),
+                    "contract_ticker":     c.get("ticker"),
+                    "strike":              c.get("strike_price"),
+                    "expiration":          c.get("expiration_date"),
                     "shares_per_contract": c.get("shares_per_contract", 100)
                 }
                 for c in contracts
             ],
             "source": "Polygon.io",
-            "note":   "Use Polygon.io or your broker to get live bid/ask premiums."
+            "note":   "Use contract_ticker when placing an options trade."
         }
     except Exception as e:
         return {"error": str(e)}
 
 
 def get_financial_news(query: str, num_articles: int = 3) -> dict:
-    num_articles = min(num_articles, 5)
-    url = "https://newsapi.org/v2/everything"
-    params = {
-        "q":        query,
-        "language": "en",
-        "sortBy":   "publishedAt",
-        "pageSize": num_articles,
-        "apiKey":   NEWS_API_KEY
-    }
     try:
-        r = requests.get(url, params=params, timeout=10)
-        data = r.json()
-        articles = data.get("articles", [])
+        r        = requests.get("https://newsapi.org/v2/everything", params={
+            "q": query, "language": "en", "sortBy": "publishedAt",
+            "pageSize": min(num_articles, 5), "apiKey": NEWS_API_KEY
+        }, timeout=10)
+        articles = r.json().get("articles", [])
         if not articles:
-            return {"error": "No articles found for that query."}
+            return {"error": "No articles found."}
         return {
             "query": query,
             "articles": [
@@ -296,7 +309,7 @@ def get_financial_news(query: str, num_articles: int = 3) -> dict:
                     "title":     a["title"],
                     "source":    a["source"]["name"],
                     "published": a["publishedAt"],
-                    "summary":   a.get("description", "No description available."),
+                    "summary":   a.get("description", ""),
                     "url":       a["url"]
                 }
                 for a in articles
@@ -308,116 +321,185 @@ def get_financial_news(query: str, num_articles: int = 3) -> dict:
 
 
 def get_market_overview() -> dict:
-    """Real-time major indices via Alpaca."""
-    indices = ["SPY", "QQQ", "DIA", "IWM"]
     results = {}
-    for ticker in indices:
+    for ticker in ["SPY", "QQQ", "DIA", "IWM"]:
         try:
-            snap_url = f"{ALPACA_DATA_URL}/stocks/{ticker}/snapshot"
-            snap_r   = requests.get(snap_url, headers=ALPACA_HEADERS, timeout=10)
-            snap     = snap_r.json()
-
+            snap  = requests.get(f"{ALPACA_DATA_URL}/stocks/{ticker}/snapshot", headers=ALPACA_HEADERS, timeout=10).json()
             daily = snap.get("dailyBar", {})
             prev  = snap.get("prevDailyBar", {})
             trade = snap.get("latestTrade", {})
-
             latest_price = trade.get("p") or daily.get("c")
             prev_close   = prev.get("c")
-            change_pct   = round(((latest_price - prev_close) / prev_close) * 100, 2) if latest_price and prev_close else None
-
             results[ticker] = {
                 "price":      latest_price,
                 "open":       daily.get("o"),
                 "high":       daily.get("h"),
                 "low":        daily.get("l"),
                 "prev_close": prev_close,
-                "change_pct": change_pct,
+                "change_pct": round(((latest_price - prev_close) / prev_close) * 100, 2) if latest_price and prev_close else None,
                 "volume":     daily.get("v")
             }
         except Exception as e:
             results[ticker] = {"error": str(e)}
-
-    # VIX via Polygon (Alpaca doesn't carry VIX)
     try:
-        vix_url = f"https://api.polygon.io/v2/aggs/ticker/VIX/prev?adjusted=true&apiKey={POLYGON_API_KEY}"
-        vix_r   = requests.get(vix_url, timeout=10)
-        vix_data = vix_r.json()
-        if vix_data.get("resultsCount", 0) > 0:
-            vix_res = vix_data["results"][0]
-            results["VIX"] = {
-                "close":  vix_res["c"],
-                "open":   vix_res["o"],
-                "note":   "VIX is prior day close via Polygon (not real-time)"
-            }
+        vix = requests.get(f"https://api.polygon.io/v2/aggs/ticker/VIX/prev?adjusted=true&apiKey={POLYGON_API_KEY}", timeout=10).json()
+        if vix.get("resultsCount", 0) > 0:
+            v = vix["results"][0]
+            results["VIX"] = {"close": v["c"], "open": v["o"], "note": "Prior day close via Polygon"}
     except:
         results["VIX"] = {"error": "Failed to fetch VIX"}
-
-    return {
-        "indices":    results,
-        "as_of":      datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "source":     "Alpaca Markets (real-time) + Polygon (VIX)",
-    }
+    return {"indices": results, "as_of": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "source": "Alpaca (real-time) + Polygon (VIX)"}
 
 
 def get_stock_technicals(ticker: str, days: int = 30) -> dict:
-    """Historical OHLCV + technicals via Polygon."""
     ticker     = ticker.upper()
     end_date   = datetime.now().strftime("%Y-%m-%d")
     start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-    url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date}/{end_date}?adjusted=true&sort=asc&apiKey={POLYGON_API_KEY}"
     try:
-        r       = requests.get(url, timeout=10)
-        data    = r.json()
-        results = data.get("results", [])
+        r       = requests.get(
+            f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date}/{end_date}?adjusted=true&sort=asc&apiKey={POLYGON_API_KEY}",
+            timeout=10
+        )
+        results = r.json().get("results", [])
         if not results:
             return {"error": f"No historical data for {ticker}"}
-
         closes = [d["c"] for d in results]
         highs  = [d["h"] for d in results]
         lows   = [d["l"] for d in results]
 
         def sma(prices, period):
-            if len(prices) < period:
-                return None
-            return round(sum(prices[-period:]) / period, 2)
+            return round(sum(prices[-period:]) / period, 2) if len(prices) >= period else None
 
         def rsi(closes, period=14):
             if len(closes) < period + 1:
                 return None
-            gains, losses = [], []
-            for i in range(1, len(closes)):
-                delta = closes[i] - closes[i-1]
-                gains.append(max(delta, 0))
-                losses.append(max(-delta, 0))
-            avg_gain = sum(gains[-period:]) / period
-            avg_loss = sum(losses[-period:]) / period
-            if avg_loss == 0:
-                return 100
-            rs = avg_gain / avg_loss
-            return round(100 - (100 / (1 + rs)), 2)
+            gains  = [max(closes[i] - closes[i-1], 0) for i in range(1, len(closes))]
+            losses = [max(closes[i-1] - closes[i], 0) for i in range(1, len(closes))]
+            avg_g  = sum(gains[-period:]) / period
+            avg_l  = sum(losses[-period:]) / period
+            return 100 if avg_l == 0 else round(100 - (100 / (1 + avg_g / avg_l)), 2)
 
-        recent = results[-5:]
         return {
-            "ticker":        ticker,
-            "period_days":   days,
-            "current_price": closes[-1],
-            "52w_high":      round(max(highs), 2),
-            "52w_low":       round(min(lows), 2),
-            "sma_10":        sma(closes, 10),
-            "sma_20":        sma(closes, 20),
-            "sma_50":        sma(closes, 50),
-            "rsi_14":        rsi(closes),
-            "support":       round(min(lows[-10:]), 2),
-            "resistance":    round(max(highs[-10:]), 2),
+            "ticker": ticker, "period_days": days, "current_price": closes[-1],
+            "52w_high": round(max(highs), 2), "52w_low": round(min(lows), 2),
+            "sma_10": sma(closes, 10), "sma_20": sma(closes, 20), "sma_50": sma(closes, 50),
+            "rsi_14": rsi(closes),
+            "support": round(min(lows[-10:]), 2), "resistance": round(max(highs[-10:]), 2),
             "recent_5_days": [
-                {
-                    "date":  datetime.fromtimestamp(d["t"] / 1000).strftime("%Y-%m-%d"),
-                    "open":  d["o"], "high": d["h"], "low": d["l"], "close": d["c"]
-                }
-                for d in recent
+                {"date": datetime.fromtimestamp(d["t"]/1000).strftime("%Y-%m-%d"),
+                 "open": d["o"], "high": d["h"], "low": d["l"], "close": d["c"]}
+                for d in results[-5:]
             ],
             "source": "Polygon.io (historical)"
         }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def place_paper_trade(symbol: str, side: str, dollar_amount: float, asset_type: str, current_price: float) -> dict:
+    symbol = symbol.upper()
+    try:
+        if asset_type == "stock":
+            qty = int(dollar_amount / current_price)
+            if qty < 1:
+                return {"error": f"${dollar_amount} is too small to buy 1 share at ${current_price:.2f}. Need at least ${current_price:.2f}."}
+        else:
+            cost_per_contract = current_price * 100
+            qty = int(dollar_amount / cost_per_contract)
+            if qty < 1:
+                return {"error": f"${dollar_amount} is too small for 1 contract at ${current_price} premium (${cost_per_contract:.2f}/contract)."}
+
+        order_data = {
+            "symbol":        symbol,
+            "qty":           str(qty),
+            "side":          side,
+            "type":          "market",
+            "time_in_force": "day"
+        }
+
+        r      = requests.post(f"{ALPACA_TRADING_URL}/orders", headers=ALPACA_HEADERS, json=order_data, timeout=10)
+        result = r.json()
+
+        if "id" in result:
+            estimated_cost = float(result["qty"]) * current_price * (100 if asset_type == "option" else 1)
+            return {
+                "status":         "✅ PAPER ORDER PLACED",
+                "order_id":       result["id"],
+                "symbol":         result["symbol"],
+                "side":           result["side"],
+                "qty":            result["qty"],
+                "type":           result["type"],
+                "submitted_at":   result.get("submitted_at"),
+                "estimated_cost": f"${estimated_cost:.2f}",
+                "note":           "⚠️ This is a PAPER trade. No real money was used.",
+                "source":         "Alpaca Paper Trading"
+            }
+        else:
+            return {"error": result.get("message", "Order failed"), "details": result}
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_paper_positions() -> dict:
+    try:
+        r         = requests.get(f"{ALPACA_TRADING_URL}/positions", headers=ALPACA_HEADERS, timeout=10)
+        positions = r.json()
+        if not positions:
+            return {"message": "No open positions in paper account.", "positions": []}
+        return {
+            "positions": [
+                {
+                    "symbol":         p["symbol"],
+                    "qty":            p["qty"],
+                    "side":           p["side"],
+                    "entry_price":    p["avg_entry_price"],
+                    "current_price":  p["current_price"],
+                    "market_value":   p["market_value"],
+                    "unrealized_pnl": p["unrealized_pl"],
+                    "unrealized_pct": p["unrealized_plpc"]
+                }
+                for p in positions
+            ],
+            "source": "Alpaca Paper Trading"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_paper_account() -> dict:
+    try:
+        r    = requests.get(f"{ALPACA_TRADING_URL}/account", headers=ALPACA_HEADERS, timeout=10)
+        acct = r.json()
+        equity      = float(acct.get("equity", 0))
+        last_equity = float(acct.get("last_equity", 0))
+        return {
+            "portfolio_value": acct.get("portfolio_value"),
+            "cash":            acct.get("cash"),
+            "buying_power":    acct.get("buying_power"),
+            "equity":          acct.get("equity"),
+            "pnl_today":       round(equity - last_equity, 2),
+            "status":          acct.get("status"),
+            "note":            "Paper trading account — no real money.",
+            "source":          "Alpaca Paper Trading"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def close_paper_position(symbol: str) -> dict:
+    symbol = symbol.upper()
+    try:
+        r      = requests.delete(f"{ALPACA_TRADING_URL}/positions/{symbol}", headers=ALPACA_HEADERS, timeout=10)
+        result = r.json()
+        if "id" in result or "order_id" in result:
+            return {
+                "status":  "✅ POSITION CLOSED",
+                "symbol":  symbol,
+                "details": result,
+                "note":    "Paper trade closed. No real money affected."
+            }
+        return {"error": result.get("message", "Failed to close position"), "details": result}
     except Exception as e:
         return {"error": str(e)}
 
@@ -426,18 +508,19 @@ def get_stock_technicals(ticker: str, days: int = 30) -> dict:
 #  TOOL ROUTER
 # ─────────────────────────────────────────────
 def run_tool(tool_name: str, tool_input: dict) -> str:
-    if tool_name == "get_stock_price":
-        result = get_stock_price(**tool_input)
-    elif tool_name == "get_options_chain":
-        result = get_options_chain(**tool_input)
-    elif tool_name == "get_financial_news":
-        result = get_financial_news(**tool_input)
-    elif tool_name == "get_market_overview":
-        result = get_market_overview()
-    elif tool_name == "get_stock_technicals":
-        result = get_stock_technicals(**tool_input)
-    else:
-        result = {"error": f"Unknown tool: {tool_name}"}
+    handlers = {
+        "get_stock_price":      lambda: get_stock_price(**tool_input),
+        "get_options_chain":    lambda: get_options_chain(**tool_input),
+        "get_financial_news":   lambda: get_financial_news(**tool_input),
+        "get_market_overview":  lambda: get_market_overview(),
+        "get_stock_technicals": lambda: get_stock_technicals(**tool_input),
+        "place_paper_trade":    lambda: place_paper_trade(**tool_input),
+        "get_paper_positions":  lambda: get_paper_positions(),
+        "get_paper_account":    lambda: get_paper_account(),
+        "close_paper_position": lambda: close_paper_position(**tool_input),
+    }
+    handler = handlers.get(tool_name)
+    result  = handler() if handler else {"error": f"Unknown tool: {tool_name}"}
     return json.dumps(result)
 
 
@@ -446,7 +529,6 @@ def run_tool(tool_name: str, tool_input: dict) -> str:
 # ─────────────────────────────────────────────
 def run_agent(conversation_history: list) -> str:
     messages = conversation_history.copy()
-
     while True:
         response = client.messages.create(
             model="claude-sonnet-4-5",
@@ -455,28 +537,24 @@ def run_agent(conversation_history: list) -> str:
             tools=TOOLS,
             messages=messages
         )
-
         messages.append({"role": "assistant", "content": response.content})
 
         if response.stop_reason == "end_turn":
-            text_blocks = [b.text for b in response.content if hasattr(b, "text")]
-            return "\n".join(text_blocks)
+            return "\n".join(b.text for b in response.content if hasattr(b, "text"))
 
         if response.stop_reason == "tool_use":
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
-                    print(f"[FinSight] Calling tool: {block.name} with {block.input}")
-                    result = run_tool(block.name, block.input)
+                    print(f"[FinSight] Tool: {block.name} | Input: {block.input}")
                     tool_results.append({
                         "type":        "tool_result",
                         "tool_use_id": block.id,
-                        "content":     result
+                        "content":     run_tool(block.name, block.input)
                     })
             messages.append({"role": "user", "content": tool_results})
         else:
-            text_blocks = [b.text for b in response.content if hasattr(b, "text")]
-            return "\n".join(text_blocks) or "An unexpected error occurred."
+            return "\n".join(b.text for b in response.content if hasattr(b, "text")) or "Unexpected error."
 
 
 # ─────────────────────────────────────────────
@@ -497,7 +575,6 @@ def chat():
         return jsonify({"error": "No message provided"}), 400
 
     history.append({"role": "user", "content": user_message})
-
     try:
         reply = run_agent(history)
         history.append({"role": "assistant", "content": reply})
