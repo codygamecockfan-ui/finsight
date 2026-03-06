@@ -1,6 +1,8 @@
 import os
 import json
 import requests
+import threading
+import time
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify
 from anthropic import Anthropic
@@ -25,6 +27,22 @@ ALPACA_CRYPTO_URL  = "https://data.alpaca.markets/v1beta3/crypto/us"
 ALPACA_TRADING_URL = "https://paper-api.alpaca.markets/v2"
 # Known crypto tickers (bare symbol, no /USD)
 CRYPTO_SYMBOLS = {"BTC","ETH","SOL","DOGE","AVAX","LINK","MATIC","LTC","BCH","XRP","ADA"}
+
+# ─────────────────────────────────────────────
+#  AUTONOMOUS TRADE MONITOR STATE
+#  Keyed by symbol. Each entry:
+#  {
+#    "entry_price":  float,
+#    "entry_time":   datetime,
+#    "stop_loss_pct": float,   e.g. 0.10 = 10%
+#    "take_profit_pct": float, e.g. 0.20 = 20%
+#    "time_limit_min": int,    e.g. 10 = sell after 10 min
+#    "asset_type":   "stock" | "crypto" | "option"
+#  }
+# ─────────────────────────────────────────────
+trade_monitors = {}
+monitor_lock   = threading.Lock()
+monitor_log    = []  # running log of autonomous actions
 
 ALPACA_HEADERS = {
     "APCA-API-KEY-ID":     ALPACA_API_KEY,
@@ -84,6 +102,16 @@ You have the ability to place PAPER trades (simulated, no real money) via Alpaca
 - For options: use the option contract ticker from get_options_chain.
 - After placing, always show the order confirmation details.
 - Remind the user this is paper trading — no real money involved.
+
+## AUTONOMOUS TRADE MONITOR
+After placing ANY trade, ALWAYS call set_trade_monitor immediately with exit rules:
+- If the user specified a time limit (e.g. "sell in 10 minutes"), set time_limit_min accordingly.
+- If the user specified a stop loss (e.g. "stop at 10%"), set stop_loss_pct = 0.10.
+- If the user specified a take profit (e.g. "take profit at 20%"), set take_profit_pct = 0.20.
+- If the user gave no rules, use sensible defaults: stop_loss_pct=0.15, take_profit_pct=0.25, time_limit_min=0.
+- The monitor runs every 60 seconds in the background and will auto-sell without user input.
+- Users can ask "what's the monitor log?" to see autonomous actions taken.
+- Users can say "cancel monitor for X" to stop watching a position.
 
 ## FOREIGN AFFAIRS & GEOPOLITICAL ANALYSIS
 You monitor and analyze:
@@ -215,6 +243,38 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "symbol": {"type": "string", "description": "The ticker symbol of the position to close"}
+            },
+            "required": ["symbol"]
+        }
+    },
+    {
+        "name": "set_trade_monitor",
+        "description": "Set autonomous exit rules for a position. Call this immediately after placing a trade when the user specifies a time limit, stop loss, or take profit. The monitor runs every 60 seconds and will auto-sell when any condition is met.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol":           {"type": "string",  "description": "Ticker symbol (e.g. BTC, AAPL)"},
+                "entry_price":      {"type": "number",  "description": "The price the position was entered at"},
+                "asset_type":       {"type": "string",  "enum": ["stock", "crypto", "option"]},
+                "stop_loss_pct":    {"type": "number",  "description": "Stop loss as a decimal e.g. 0.10 = 10% loss triggers sell. Use 0 to skip."},
+                "take_profit_pct":  {"type": "number",  "description": "Take profit as a decimal e.g. 0.20 = 20% gain triggers sell. Use 0 to skip."},
+                "time_limit_min":   {"type": "integer", "description": "Minutes until forced sell regardless of P&L. Use 0 to skip."}
+            },
+            "required": ["symbol", "entry_price", "asset_type", "stop_loss_pct", "take_profit_pct", "time_limit_min"]
+        }
+    },
+    {
+        "name": "get_monitor_log",
+        "description": "Get the log of all autonomous trade actions taken by the monitor (auto-sells, alerts, etc).",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "cancel_trade_monitor",
+        "description": "Cancel the autonomous monitor for a position so it won't auto-sell.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "Ticker symbol to stop monitoring"}
             },
             "required": ["symbol"]
         }
@@ -577,6 +637,151 @@ def close_paper_position(symbol: str) -> dict:
         return {"error": str(e)}
 
 
+def set_trade_monitor(symbol: str, entry_price: float, asset_type: str,
+                      stop_loss_pct: float, take_profit_pct: float, time_limit_min: int) -> dict:
+    symbol = symbol.upper().replace("/USD", "")
+    with monitor_lock:
+        trade_monitors[symbol] = {
+            "entry_price":      entry_price,
+            "entry_time":       datetime.now(),
+            "stop_loss_pct":    stop_loss_pct,
+            "take_profit_pct":  take_profit_pct,
+            "time_limit_min":   time_limit_min,
+            "asset_type":       asset_type
+        }
+    rules = []
+    if stop_loss_pct:   rules.append(f"Stop loss: -{stop_loss_pct*100:.0f}%")
+    if take_profit_pct: rules.append(f"Take profit: +{take_profit_pct*100:.0f}%")
+    if time_limit_min:  rules.append(f"Time limit: {time_limit_min} min")
+    return {
+        "status":  f"✅ Monitor active for {symbol}",
+        "rules":   rules,
+        "note":    "FinSight will auto-sell when any condition is triggered. Checks every 60 seconds."
+    }
+
+
+def get_monitor_log() -> dict:
+    with monitor_lock:
+        log = list(monitor_log[-20:])  # last 20 events
+    return {
+        "log":   log if log else ["No autonomous actions taken yet."],
+        "active_monitors": list(trade_monitors.keys())
+    }
+
+
+def cancel_trade_monitor(symbol: str) -> dict:
+    symbol = symbol.upper().replace("/USD", "")
+    with monitor_lock:
+        if symbol in trade_monitors:
+            del trade_monitors[symbol]
+            return {"status": f"✅ Monitor cancelled for {symbol}"}
+    return {"status": f"No active monitor found for {symbol}"}
+
+
+def get_current_price_for_monitor(symbol: str, asset_type: str) -> float | None:
+    """Lightweight price fetch for the background monitor."""
+    try:
+        if asset_type == "crypto":
+            pair   = f"{symbol}/USD"
+            snap_r = requests.get(
+                f"{ALPACA_CRYPTO_URL}/snapshots",
+                headers=ALPACA_HEADERS,
+                params={"symbols": pair},
+                timeout=8
+            )
+            snap = snap_r.json().get("snapshots", {}).get(pair, {})
+            trade = snap.get("latestTrade", {})
+            daily = snap.get("dailyBar", {})
+            return trade.get("p") or daily.get("c")
+        else:
+            snap_r = requests.get(
+                f"{ALPACA_DATA_URL}/stocks/{symbol}/snapshot",
+                headers=ALPACA_HEADERS,
+                timeout=8
+            )
+            snap  = snap_r.json()
+            trade = snap.get("latestTrade", {})
+            daily = snap.get("dailyBar", {})
+            return trade.get("p") or daily.get("c")
+    except:
+        return None
+
+
+def auto_close_position(symbol: str, asset_type: str, reason: str):
+    """Fire a market sell for the position."""
+    try:
+        api_symbol = f"{symbol}/USD" if asset_type == "crypto" else symbol
+        r = requests.delete(
+            f"{ALPACA_TRADING_URL}/positions/{api_symbol}",
+            headers=ALPACA_HEADERS,
+            timeout=10
+        )
+        result = r.json()
+        success = "id" in result or "order_id" in result
+        msg = f"[{datetime.now().strftime('%H:%M:%S')}] AUTO-SELL {symbol} | Reason: {reason} | {'✅ Success' if success else '❌ Failed'}"
+    except Exception as e:
+        msg = f"[{datetime.now().strftime('%H:%M:%S')}] AUTO-SELL {symbol} FAILED | {str(e)}"
+    with monitor_lock:
+        monitor_log.append(msg)
+    print(f"[FinSight Monitor] {msg}")
+
+
+def run_trade_monitor():
+    """Background thread — checks all monitored positions every 60 seconds."""
+    print("[FinSight Monitor] 🟢 Autonomous trade monitor started")
+    while True:
+        time.sleep(60)
+        with monitor_lock:
+            symbols_to_check = dict(trade_monitors)
+
+        for symbol, rules in symbols_to_check.items():
+            try:
+                now          = datetime.now()
+                entry_price  = rules["entry_price"]
+                entry_time   = rules["entry_time"]
+                asset_type   = rules["asset_type"]
+                stop_pct     = rules["stop_loss_pct"]
+                tp_pct       = rules["take_profit_pct"]
+                time_lim     = rules["time_limit_min"]
+
+                # Check time limit first
+                elapsed_min = (now - entry_time).total_seconds() / 60
+                if time_lim and elapsed_min >= time_lim:
+                    auto_close_position(symbol, asset_type, f"Time limit reached ({time_lim} min)")
+                    with monitor_lock:
+                        trade_monitors.pop(symbol, None)
+                    continue
+
+                # Get current price
+                current_price = get_current_price_for_monitor(symbol, asset_type)
+                if not current_price:
+                    continue
+
+                pct_change = (current_price - entry_price) / entry_price
+
+                # Check stop loss
+                if stop_pct and pct_change <= -stop_pct:
+                    auto_close_position(symbol, asset_type, f"Stop loss hit ({pct_change*100:.2f}%)")
+                    with monitor_lock:
+                        trade_monitors.pop(symbol, None)
+                    continue
+
+                # Check take profit
+                if tp_pct and pct_change >= tp_pct:
+                    auto_close_position(symbol, asset_type, f"Take profit hit (+{pct_change*100:.2f}%)")
+                    with monitor_lock:
+                        trade_monitors.pop(symbol, None)
+                    continue
+
+                log_msg = f"[{now.strftime('%H:%M:%S')}] Monitoring {symbol} | Price: ${current_price:.4f} | P&L: {pct_change*100:.2f}% | Elapsed: {elapsed_min:.1f}min"
+                with monitor_lock:
+                    monitor_log.append(log_msg)
+                print(f"[FinSight Monitor] {log_msg}")
+
+            except Exception as e:
+                print(f"[FinSight Monitor] Error checking {symbol}: {e}")
+
+
 # ─────────────────────────────────────────────
 #  TOOL ROUTER
 # ─────────────────────────────────────────────
@@ -591,12 +796,19 @@ def run_tool(tool_name: str, tool_input: dict) -> str:
         "get_paper_positions":  lambda: get_paper_positions(),
         "get_paper_account":    lambda: get_paper_account(),
         "close_paper_position": lambda: close_paper_position(**tool_input),
+        "set_trade_monitor":    lambda: set_trade_monitor(**tool_input),
+        "get_monitor_log":      lambda: get_monitor_log(),
+        "cancel_trade_monitor": lambda: cancel_trade_monitor(**tool_input),
     }
     handler = handlers.get(tool_name)
     result  = handler() if handler else {"error": f"Unknown tool: {tool_name}"}
     output  = json.dumps(result)
-    # Anthropic requires non-empty tool result content
     return output if output else json.dumps({"error": "Tool returned empty response"})
+
+
+# Start the autonomous monitor in a background daemon thread
+monitor_thread = threading.Thread(target=run_trade_monitor, daemon=True)
+monitor_thread.start()
 
 
 # ─────────────────────────────────────────────
@@ -637,6 +849,22 @@ def run_agent(conversation_history: list) -> str:
 # ─────────────────────────────────────────────
 #  FLASK ROUTES
 # ─────────────────────────────────────────────
+@app.route("/monitor")
+def monitor_status():
+    with monitor_lock:
+        return jsonify({
+            "active_monitors": {
+                k: {
+                    **v,
+                    "entry_time":   v["entry_time"].isoformat(),
+                    "elapsed_min":  round((datetime.now() - v["entry_time"]).total_seconds() / 60, 1)
+                }
+                for k, v in trade_monitors.items()
+            },
+            "recent_log": list(monitor_log[-20:])
+        })
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
