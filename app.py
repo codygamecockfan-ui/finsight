@@ -1,4 +1,4 @@
-import os 
+import os
 import json
 import sqlite3
 import requests
@@ -700,8 +700,14 @@ def close_paper_position(symbol: str) -> dict:
     api_symbol = f"{symbol}/USD" if symbol in CRYPTO_SYMBOLS else symbol
     try:
         r      = requests.delete(f"{ALPACA_TRADING_URL}/positions/{api_symbol}", headers=ALPACA_HEADERS, timeout=10)
-        result = r.json()
-        if "id" in result or "order_id" in result:
+        # Alpaca returns 204 No Content on successful crypto close
+        if r.status_code in (200, 204):
+            result  = r.json() if r.content else {}
+            success = True
+        else:
+            result  = r.json() if r.content else {}
+            success = "id" in result or "order_id" in result
+        if success:
             # Try to get exit price from positions before close
             try:
                 pos_r = requests.get(f"{ALPACA_TRADING_URL}/positions/{api_symbol}", headers=ALPACA_HEADERS, timeout=5)
@@ -780,9 +786,14 @@ def get_current_price_for_monitor(symbol: str, asset_type: str):
 def auto_close_position(symbol: str, asset_type: str, reason: str, exit_price: float = 0):
     api_symbol = f"{symbol}/USD" if asset_type == "crypto" else symbol
     try:
-        r       = requests.delete(f"{ALPACA_TRADING_URL}/positions/{api_symbol}", headers=ALPACA_HEADERS, timeout=10)
-        result  = r.json()
-        success = "id" in result or "order_id" in result
+        r = requests.delete(f"{ALPACA_TRADING_URL}/positions/{api_symbol}", headers=ALPACA_HEADERS, timeout=10)
+        # Alpaca returns 204 No Content on successful crypto position close
+        if r.status_code in (200, 204):
+            result  = r.json() if r.content else {}
+            success = True
+        else:
+            result  = r.json() if r.content else {}
+            success = "id" in result or "order_id" in result
         if success:
             db_log_exit(symbol, exit_price, reason)
         msg = f"[{datetime.now().strftime('%H:%M:%S')}] AUTO-SELL {symbol} | {reason} | {'✅ Done' if success else '❌ Failed'}"
