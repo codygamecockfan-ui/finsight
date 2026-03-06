@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinSight — Login</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 16px;
+      padding: 48px 40px;
+      width: 100%;
+      max-width: 380px;
+      text-align: center;
+    }
+    .logo {
+      font-size: 2rem;
+      margin-bottom: 8px;
+    }
+    h1 {
+      color: #00d4aa;
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .subtitle {
+      color: #8b949e;
+      font-size: 0.85rem;
+      margin-bottom: 32px;
+    }
+    input[type="password"] {
+      width: 100%;
+      padding: 12px 16px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      color: #e6edf3;
+      font-size: 1rem;
+      margin-bottom: 16px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input[type="password"]:focus {
+      border-color: #00d4aa;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #00d4aa;
+      color: #0d1117;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #00b894;
+    }
+    .error {
+      background: #2b1a1a;
+      border: 1px solid #f85149;
+      color: #f85149;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">📊</div>
+    <h1>FinSight</h1>
+    <div class="subtitle">Private trading terminal</div>
+    {% if error %}
+    <div class="error">{{ error }}</div>
+    {% endif %}
+    <form method="POST">
+      <input type="password" name="password" placeholder="Enter password" autofocus>
+      <button type="submit">Access FinSight</button>
+    </form>
+  </div>
+</body>
+</html>
