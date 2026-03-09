@@ -490,28 +490,83 @@ def get_stock_price(ticker: str) -> dict:
 
 
 def get_options_chain(ticker: str, option_type: str, expiration_date: str = None) -> dict:
-    ticker = ticker.upper()
-    params = {
-        "underlying_ticker": ticker, "contract_type": option_type,
-        "limit": 10, "sort": "strike_price", "order": "asc", "apiKey": POLYGON_API_KEY
-    }
-    if expiration_date:
-        params["expiration_date"] = expiration_date
-    else:
-        params["expiration_date.gte"] = datetime.now().strftime("%Y-%m-%d")
-        params["expiration_date.lte"] = (datetime.now() + timedelta(days=8)).strftime("%Y-%m-%d")
+    ticker      = ticker.upper()
+    tradier_key = os.getenv("TRADIER_API_KEY")
+    headers     = {"Authorization": f"Bearer {tradier_key}", "Accept": "application/json"}
+
+    # Step 1 — get available expirations if no date given
+    if not expiration_date:
+        try:
+            exp_r = requests.get(
+                "https://api.tradier.com/v1/markets/options/expirations",
+                headers=headers, params={"symbol": ticker, "includeAllRoots": "true"}, timeout=10)
+            expirations = exp_r.json().get("expirations", {}).get("date", [])
+            if not expirations:
+                return {"error": f"No expirations found for {ticker}"}
+            # Pick nearest expiration (0DTE today if available, else next)
+            today = datetime.now().strftime("%Y-%m-%d")
+            expiration_date = next((e for e in expirations if e >= today), expirations[0])
+        except Exception as e:
+            return {"error": f"Failed to get expirations: {e}"}
+
+    # Step 2 — get options chain for that expiration
     try:
-        r = requests.get("https://api.polygon.io/v3/reference/options/contracts", params=params, timeout=10)
-        contracts = r.json().get("results", [])
-        if not contracts:
-            return {"error": "No options contracts found."}
+        r = requests.get(
+            "https://api.tradier.com/v1/markets/options/chains",
+            headers=headers,
+            params={"symbol": ticker, "expiration": expiration_date, "greeks": "true"},
+            timeout=10)
+        data    = r.json()
+        options = data.get("options", {}).get("option", [])
+        if not options:
+            return {"error": f"No options found for {ticker} expiring {expiration_date}"}
+
+        # Filter to requested type (call/put) and near-the-money strikes
+        filtered = [o for o in options if o.get("option_type","").lower() == option_type.lower()]
+
+        # Get current price to find ATM strikes
+        try:
+            snap  = requests.get(f"{ALPACA_DATA_URL}/stocks/{ticker}/snapshot",
+                                 headers=ALPACA_HEADERS, timeout=8).json()
+            price = snap.get("latestTrade",{}).get("p") or snap.get("dailyBar",{}).get("c") or 0
+        except:
+            price = 0
+
+        # Sort by proximity to current price, return 10 nearest strikes
+        if price:
+            filtered.sort(key=lambda o: abs(o.get("strike", 0) - price))
+            filtered = filtered[:10]
+            filtered.sort(key=lambda o: o.get("strike", 0))
+        else:
+            filtered = filtered[:10]
+
+        contracts = []
+        for o in filtered:
+            contracts.append({
+                "contract_ticker": o.get("symbol"),
+                "strike":          o.get("strike"),
+                "expiration":      expiration_date,
+                "option_type":     o.get("option_type"),
+                "bid":             o.get("bid"),
+                "ask":             o.get("ask"),
+                "last":            o.get("last"),
+                "volume":          o.get("volume"),
+                "open_interest":   o.get("open_interest"),
+                "delta":           o.get("greeks", {}).get("delta") if o.get("greeks") else None,
+                "gamma":           o.get("greeks", {}).get("gamma") if o.get("greeks") else None,
+                "theta":           o.get("greeks", {}).get("theta") if o.get("greeks") else None,
+                "iv":              o.get("greeks", {}).get("mid_iv") if o.get("greeks") else None,
+            })
+
         return {
-            "ticker": ticker, "option_type": option_type,
-            "contracts_found": len(contracts),
-            "contracts": [{"contract_ticker": c.get("ticker"), "strike": c.get("strike_price"),
-                           "expiration": c.get("expiration_date"), "shares_per_contract": c.get("shares_per_contract",100)}
-                          for c in contracts],
-            "source": "Polygon.io", "note": "Use contract_ticker when placing an options trade."
+            "ticker":           ticker,
+            "option_type":      option_type,
+            "expiration":       expiration_date,
+            "underlying_price": price,
+            "contracts_found":  len(contracts),
+            "contracts":        contracts,
+            "source":           "Tradier",
+            "note":             "Use contract_ticker when placing an options trade."
         }
     except Exception as e:
         return {"error": str(e)}
