@@ -95,7 +95,6 @@ def db_log_entry(symbol, asset_type, side, entry_price, qty, dollar_amount,
 def db_log_exit(symbol, exit_price, exit_reason):
     conn = sqlite3.connect(DB_PATH)
     c    = conn.cursor()
-    # Find the most recent open trade for this symbol
     c.execute("""
         SELECT id, entry_price, dollar_amount, entry_time
         FROM trades WHERE symbol=? AND status='open'
@@ -104,11 +103,11 @@ def db_log_exit(symbol, exit_price, exit_reason):
     row = c.fetchone()
     if row:
         trade_id, entry_price, dollar_amount, entry_time_str = row
-        exit_time    = datetime.now()
-        entry_time   = datetime.fromisoformat(entry_time_str)
-        time_held    = (exit_time - entry_time).total_seconds() / 60
-        pnl_pct      = ((exit_price - entry_price) / entry_price) * 100 if entry_price else 0
-        pnl          = dollar_amount * (pnl_pct / 100)
+        exit_time  = datetime.now()
+        entry_time = datetime.fromisoformat(entry_time_str)
+        time_held  = (exit_time - entry_time).total_seconds() / 60
+        pnl_pct    = ((exit_price - entry_price) / entry_price) * 100 if entry_price else 0
+        pnl        = dollar_amount * (pnl_pct / 100)
         c.execute("""
             UPDATE trades SET
                 exit_price=?, exit_time=?, time_held_min=?,
@@ -116,7 +115,18 @@ def db_log_exit(symbol, exit_price, exit_reason):
             WHERE id=?
         """, (exit_price, exit_time.isoformat(), round(time_held, 2),
               round(pnl, 2), round(pnl_pct, 2), exit_reason, trade_id))
-        conn.commit()
+    else:
+        now = datetime.now().isoformat()
+        c.execute("""
+            INSERT INTO trades
+            (symbol, asset_type, side, entry_price, exit_price, qty, dollar_amount,
+             pnl, pnl_pct, exit_reason, thesis, confidence, indicators, market_condition,
+             entry_time, exit_time, time_held_min, order_id, status)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'closed')
+        """, (symbol, 'unknown', 'buy', exit_price, exit_price, '?', 0,
+              0, 0, exit_reason, 'Entry not logged - recorded at close',
+              0, '', '', now, now, 0, ''))
+    conn.commit()
     conn.close()
 
 def db_get_all_trades():
