@@ -41,7 +41,7 @@ monitor_log    = []
 # ─────────────────────────────────────────────
 #  DATABASE SETUP
 # ─────────────────────────────────────────────
-DB_PATH = os.path.join(os.path.dirname(__file__), "finsight_trades.db")
+DB_PATH = os.getenv("DB_PATH", os.path.join(os.path.dirname(__file__), "finsight_trades.db"))
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
