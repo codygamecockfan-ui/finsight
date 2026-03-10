@@ -10,6 +10,33 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "finsight_trades.db")
 conn = sqlite3.connect(DB_PATH)
 c    = conn.cursor()
 
+# Create table if it doesn't exist yet
+c.execute("""
+    CREATE TABLE IF NOT EXISTS trades (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol          TEXT    NOT NULL,
+        asset_type      TEXT    NOT NULL,
+        side            TEXT    NOT NULL,
+        entry_price     REAL    NOT NULL,
+        exit_price      REAL,
+        qty             TEXT    NOT NULL,
+        dollar_amount   REAL    NOT NULL,
+        pnl             REAL,
+        pnl_pct         REAL,
+        exit_reason     TEXT,
+        thesis          TEXT,
+        confidence      INTEGER,
+        indicators      TEXT,
+        market_condition TEXT,
+        entry_time      TEXT    NOT NULL,
+        exit_time       TEXT,
+        time_held_min   REAL,
+        order_id        TEXT,
+        status          TEXT    DEFAULT 'open'
+    )
+""")
+conn.commit()
+
 c.execute("""
     INSERT INTO trades
     (symbol, asset_type, side, entry_price, exit_price, qty, dollar_amount,
