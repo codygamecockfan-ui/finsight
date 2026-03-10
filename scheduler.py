@@ -41,7 +41,7 @@ ALPACA_HEADERS = {
 }
 
 MAX_TRADE_AMOUNT = float(os.getenv("MAX_TRADE_AMOUNT", "500"))
-DB_PATH          = os.path.join(os.path.dirname(__file__), "finsight_trades.db")
+DB_PATH          = os.getenv("DB_PATH", os.path.join(os.path.dirname(__file__), "finsight_trades.db"))
 
 
 # ─────────────────────────────────────────────
