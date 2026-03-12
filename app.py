@@ -14,8 +14,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(**name**)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(24))
-client = Anthropic() 
+app.secret_key = os.getenv(“FLASK_SECRET_KEY”, os.urandom(24))
+client = Anthropic()
 
 ANTHROPIC_API_KEY  = os.getenv(“ANTHROPIC_API_KEY”)
 POLYGON_API_KEY    = os.getenv(“POLYGON_API_KEY”)
