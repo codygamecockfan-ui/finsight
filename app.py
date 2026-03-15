@@ -44,6 +44,7 @@ monitor_log    = []
 DB_PATH = os.getenv("DB_PATH", os.path.join(os.path.dirname(__file__), "finsight_trades.db"))
 
 def init_db():
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True) if os.path.dirname(DB_PATH) else None
     conn = sqlite3.connect(DB_PATH)
     c    = conn.cursor()
     c.execute("""
