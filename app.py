@@ -1220,7 +1220,7 @@ def run_agent(conversation_history: list) -> str:
                 analysis_tools = {"get_stock_price", "get_financial_news", "get_market_overview",
                                    "get_options_chain", "get_stock_technicals", "get_vwap",
                                    "get_expected_move", "get_trading_session"}
-                called_tools = {b.name for b in response.content if block.type == "tool_use"}
+                called_tools = {b.name for b in response.content if b.type == "tool_use"}
                 messages.append({"role": "user", "content": tool_results})
                 # Append table reminder after any trade or analysis tool batch
                 if called_tools & (trade_tools | analysis_tools):
