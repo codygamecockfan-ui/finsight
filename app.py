@@ -440,6 +440,13 @@ NEVER skip the table. NEVER execute silently without showing the full table firs
 - Cross-reference news AND price data when forming a thesis.
 - If data is unavailable or stale, say so explicitly.
 
+## CRYPTO TRADE RULES
+For crypto trades (BTC, ETH, SOL, DOGE, etc.):
+- Do NOT call get_trading_session, get_vwap, or get_expected_move — these are equity-only tools.
+- Only call get_stock_price (for both assets if comparing) and get_financial_news.
+- Crypto runs 24/7 — no session restrictions apply.
+- Keep tool calls to a minimum: price + news only before recommending.
+
 ## 0DTE PRE-TRADE CHECKLIST (MANDATORY)
 Before recommending ANY 0DTE options trade, you MUST call ALL of these tools first:
 1. get_trading_session — check if timing is favorable. If session quality is "poor", warn the user strongly and recommend waiting. If "none" (closed), refuse the trade.
@@ -1187,7 +1194,7 @@ def run_agent(conversation_history: list) -> str:
     system_with_time = SYSTEM_PROMPT + f"\n\n## CURRENT TIME\nThe current date and time is {current_time}. Always use this as your reference — never estimate or guess the time."
     while True:
         response = client.messages.create(
-            model="claude-sonnet-4-5",
+            model="claude-sonnet-4-6",
             max_tokens=4096,
             system=system_with_time,
             tools=TOOLS,
