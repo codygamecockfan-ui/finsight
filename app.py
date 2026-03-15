@@ -38,6 +38,190 @@ trade_monitors = {}
 monitor_lock   = threading.Lock()
 monitor_log    = []
 
+AUTO_EXECUTE_THRESHOLD  = int(os.getenv("AUTO_EXECUTE_THRESHOLD", "7"))
+AUTO_EXECUTE_MAX_DOLLAR = float(os.getenv("AUTO_EXECUTE_MAX_DOLLAR", "200"))
+
+# ─────────────────────────────────────────────
+#  0DTE SESSION LOGIC
+# ─────────────────────────────────────────────
+def get_trading_session() -> dict:
+    now = datetime.now()
+    hour = now.hour
+    minute = now.minute
+    total_min = hour * 60 + minute
+
+    # Market hours in ET (app runs in ET via TZ env var)
+    OPEN       = 9  * 60 + 30
+    CLOSE      = 16 * 60
+    C_OPEN_END = 9  * 60 + 45
+    BEST_START = 10 * 60
+    BEST_END   = 11 * 60 + 30
+    LUNCH_END  = 14 * 60
+    POWER_START= 15 * 60
+    CLOSE_WARN = 15 * 60 + 30
+
+    if total_min < OPEN or total_min >= CLOSE:
+        return {
+            "session": "closed",
+            "quality": "none",
+            "warning": "Market is closed. No 0DTE trades.",
+            "recommendation": "avoid"
+        }
+    if total_min < C_OPEN_END:
+        return {
+            "session": "open_chop",
+            "quality": "poor",
+            "warning": "First 15 min after open — high volatility, fakeouts common.",
+            "recommendation": "avoid"
+        }
+    if total_min < BEST_START:
+        return {
+            "session": "early",
+            "quality": "fair",
+            "warning": "9:45-10:00 window. OK but not ideal — direction still setting.",
+            "recommendation": "caution"
+        }
+    if total_min < BEST_END:
+        return {
+            "session": "prime",
+            "quality": "best",
+            "warning": None,
+            "recommendation": "favorable — best 0DTE window"
+        }
+    if total_min < LUNCH_END:
+        return {
+            "session": "lunch_chop",
+            "quality": "poor",
+            "warning": "11:30-2:00 lunch chop. Low volume, choppy price action.",
+            "recommendation": "avoid"
+        }
+    if total_min < POWER_START:
+        return {
+            "session": "afternoon",
+            "quality": "fair",
+            "warning": "2:00-3:00 afternoon window. Directional moves possible.",
+            "recommendation": "caution"
+        }
+    if total_min < CLOSE_WARN:
+        return {
+            "session": "power_hour",
+            "quality": "good",
+            "warning": "Power hour. High conviction plays only — theta burning fast.",
+            "recommendation": "high conviction only"
+        }
+    return {
+        "session": "late",
+        "quality": "poor",
+        "warning": "Under 30 min to close. Theta decay extreme. 0DTE extremely risky.",
+        "recommendation": "avoid"
+    }
+
+
+# ─────────────────────────────────────────────
+#  VWAP + EXPECTED MOVE CALCULATION
+# ─────────────────────────────────────────────
+def calculate_vwap(ticker: str) -> dict:
+    ticker = ticker.upper()
+    try:
+        today = datetime.now().strftime("%Y-%m-%d")
+        r = requests.get(
+            f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/minute/{today}/{today}",
+            params={"adjusted": "true", "sort": "asc", "limit": 500, "apiKey": POLYGON_API_KEY},
+            timeout=10
+        )
+        bars = r.json().get("results", [])
+        if not bars:
+            return {"error": "No intraday data for VWAP calculation"}
+
+        cum_pv = 0.0
+        cum_v  = 0.0
+        for b in bars:
+            typical = (b["h"] + b["l"] + b["c"]) / 3
+            cum_pv += typical * b["v"]
+            cum_v  += b["v"]
+
+        if cum_v == 0:
+            return {"error": "Zero volume — cannot compute VWAP"}
+
+        vwap         = round(cum_pv / cum_v, 4)
+        current      = bars[-1]["c"]
+        pct_vs_vwap  = round(((current - vwap) / vwap) * 100, 3)
+        position     = "above" if current > vwap else "below"
+
+        return {
+            "ticker":       ticker,
+            "vwap":         vwap,
+            "current":      current,
+            "pct_vs_vwap":  pct_vs_vwap,
+            "position":     f"Price is {position} VWAP by {abs(pct_vs_vwap)}%",
+            "bars_used":    len(bars),
+            "source":       "Polygon.io (intraday 1-min bars)"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def calculate_expected_move(ticker: str, option_type: str = "call") -> dict:
+    ticker = ticker.upper()
+    try:
+        tradier_key = os.getenv("TRADIER_API_KEY")
+        headers     = {"Authorization": f"Bearer {tradier_key}", "Accept": "application/json"}
+        today       = datetime.now().strftime("%Y-%m-%d")
+
+        exp_r = requests.get(
+            "https://api.tradier.com/v1/markets/options/expirations",
+            headers=headers, params={"symbol": ticker, "includeAllRoots": "true"}, timeout=10
+        )
+        expirations = exp_r.json().get("expirations", {}).get("date", [])
+        expiry      = next((e for e in expirations if e >= today), None)
+        if not expiry:
+            return {"error": "No valid expiration found"}
+
+        chain_r = requests.get(
+            "https://api.tradier.com/v1/markets/options/chains",
+            headers=headers,
+            params={"symbol": ticker, "expiration": expiry, "greeks": "true"},
+            timeout=10
+        )
+        options = chain_r.json().get("options", {}).get("option", [])
+
+        snap    = requests.get(f"{ALPACA_DATA_URL}/stocks/{ticker}/snapshot",
+                               headers=ALPACA_HEADERS, timeout=8).json()
+        price   = snap.get("latestTrade", {}).get("p") or snap.get("dailyBar", {}).get("c") or 0
+
+        atm = min(options, key=lambda o: abs(o.get("strike", 0) - price), default=None)
+        if not atm or not atm.get("greeks"):
+            return {"error": "Could not find ATM option for expected move"}
+
+        iv  = atm["greeks"].get("mid_iv") or 0
+        dte = 1 / 365
+
+        expected_move     = round(price * iv * (dte ** 0.5), 2)
+        expected_move_pct = round((expected_move / price) * 100, 2) if price else 0
+
+        daily_high = snap.get("dailyBar", {}).get("h") or price
+        daily_low  = snap.get("dailyBar", {}).get("l") or price
+        already_moved     = round(daily_high - daily_low, 2)
+        already_moved_pct = round((already_moved / price) * 100, 2) if price else 0
+        pct_used          = round((already_moved / expected_move) * 100, 1) if expected_move else 0
+
+        return {
+            "ticker":             ticker,
+            "current_price":      price,
+            "atm_iv":             round(iv * 100, 2),
+            "expiry":             expiry,
+            "expected_move":      f"±${expected_move}",
+            "expected_move_pct":  f"±{expected_move_pct}%",
+            "upper_bound":        round(price + expected_move, 2),
+            "lower_bound":        round(price - expected_move, 2),
+            "already_moved":      f"${already_moved} ({already_moved_pct}%)",
+            "pct_of_move_used":   f"{pct_used}% of expected daily range used",
+            "signal":             "late — most of the move is done" if pct_used > 70 else "room to move" if pct_used < 40 else "moderate — proceed with caution",
+            "source":             "Tradier (IV) + Alpaca (price)"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 # ─────────────────────────────────────────────
 #  DATABASE SETUP
 # ─────────────────────────────────────────────
@@ -232,8 +416,12 @@ You are NOT folksy, country, or corny. Think Bloomberg terminal meets a guy who'
 | Time Limit | |
 | Delta | |
 | IV | |
+| VWAP Position | |
+| Expected Move Used | |
+| Session Quality | |
 | Risk Level | |
 | Confidence | X/10 |
+| Auto-Execute | Yes / No — awaiting approval |
 | Thesis | |
 
 Fill in whatever fields are relevant. Always include this table — no exceptions.
@@ -245,16 +433,34 @@ Fill in whatever fields are relevant. Always include this table — no exception
 - Cross-reference news AND price data when forming a thesis.
 - If data is unavailable or stale, say so explicitly.
 
+## 0DTE PRE-TRADE CHECKLIST (MANDATORY)
+Before recommending ANY 0DTE options trade, you MUST call ALL of these tools first:
+1. get_trading_session — check if timing is favorable. If session quality is "poor", warn the user strongly and recommend waiting. If "none" (closed), refuse the trade.
+2. get_vwap (for the ticker) — note whether price is above or below VWAP and by how much.
+3. get_expected_move (for the ticker) — note how much of the daily range is already used. If >70% used, flag as "late entry" and reduce confidence by at least 2 points.
+4. get_options_chain — get the chain with Greeks. Target delta 0.30–0.50 only. Reject strikes outside this range.
+Include session, VWAP position, expected move status, and delta in the summary table for all 0DTE trades.
+
+## CONFIDENCE GATING & HYBRID EXECUTION
+After scoring confidence (1-10), apply these rules automatically:
+- Confidence >= 7 AND dollar amount <= $200: execute automatically without asking.
+- Confidence >= 7 AND dollar amount > $200: present the trade summary and ask "Want me to fire this?" before executing.
+- Confidence < 7: NEVER auto-execute. Always present summary and ask for approval. State your confidence and why it's below threshold.
+- Confidence <= 4: Recommend against the trade entirely. Tell the user why the setup is weak.
+Always state the confidence score and whether you're auto-executing or waiting for approval.
+
 ## OPTIONS TRADING RULES (NON-NEGOTIABLE)
 - EVERY options trade MUST have a stop loss of at minimum -40%.
 - EVERY options trade MUST have a take profit of at minimum +80%.
 - Time limit on 0DTE trades: 30 minutes MAX.
-- These are hardcoded rules. If a user tries to place an options trade without them, apply the defaults automatically and tell them why.
+- Delta MUST be between 0.30 and 0.50 for 0DTE entries. Outside this range = reject or flag strongly.
+- These are hardcoded rules. Apply defaults automatically and tell the user if overriding their input.
 
 ## PAPER TRADING EXECUTION
 - Supports stocks, options, AND crypto (BTC, ETH, SOL, DOGE, etc.)
-- ALWAYS confirm with the user before placing any trade.
-- When confirmed, use place_paper_trade then immediately call set_trade_monitor with exit rules.
+- For trades requiring approval: present the summary table and wait for confirmation.
+- For auto-execute trades: place immediately and notify the user it was auto-executed.
+- When executing, use place_paper_trade then immediately call set_trade_monitor with exit rules.
 - Default monitor rules if none specified: stop_loss_pct=0.15, take_profit_pct=0.25, time_limit_min=0.
 - For options if none specified: stop_loss_pct=0.40, take_profit_pct=1.00, time_limit_min=30.
 
@@ -420,6 +626,34 @@ TOOLS = [
                 "limit": {"type": "integer", "description": "Number of recent trades to return (default 10)", "default": 10}
             },
             "required": []
+        }
+    },
+    {
+        "name": "get_trading_session",
+        "description": "Get the current trading session window and quality rating for 0DTE trades. Call this before any 0DTE recommendation to check if the timing is favorable.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "get_vwap",
+        "description": "Calculate intraday VWAP for a stock ticker. Essential for 0DTE — tells you if price is above or below the volume-weighted average price.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string", "description": "Stock ticker e.g. SPY, QQQ, IWM"}
+            },
+            "required": ["ticker"]
+        }
+    },
+    {
+        "name": "get_expected_move",
+        "description": "Calculate the market-implied expected move for today using ATM IV. Shows how much the stock is expected to move by close, and how much of that range has already been used. Critical for 0DTE entries.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker":      {"type": "string", "description": "Stock ticker e.g. SPY, QQQ"},
+                "option_type": {"type": "string", "enum": ["call", "put"], "description": "Which side to use for ATM IV lookup"}
+            },
+            "required": ["ticker", "option_type"]
         }
     }
 ]
@@ -921,6 +1155,9 @@ def run_tool(tool_name: str, tool_input: dict) -> str:
         "cancel_trade_monitor":   lambda: cancel_trade_monitor(**tool_input),
         "get_performance_summary":lambda: get_performance_summary(),
         "get_recent_trades":      lambda: get_recent_trades(**tool_input),
+        "get_trading_session":    lambda: get_trading_session(),
+        "get_vwap":               lambda: calculate_vwap(**tool_input),
+        "get_expected_move":      lambda: calculate_expected_move(**tool_input),
     }
     handler = handlers.get(tool_name)
     result  = handler() if handler else {"error": f"Unknown tool: {tool_name}"}
