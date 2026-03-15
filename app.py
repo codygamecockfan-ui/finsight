@@ -1214,7 +1214,22 @@ def run_agent(conversation_history: list) -> str:
                         "content": content or json.dumps({"error": "Empty response"})
                     })
             if tool_results:
+                # Detect if this is the final tool call before Claude responds
+                # by checking if place_paper_trade or set_trade_monitor was just called
+                trade_tools = {"place_paper_trade", "set_trade_monitor", "close_paper_position"}
+                analysis_tools = {"get_stock_price", "get_financial_news", "get_market_overview",
+                                   "get_options_chain", "get_stock_technicals", "get_vwap",
+                                   "get_expected_move", "get_trading_session"}
+                called_tools = {b.name for b in response.content if block.type == "tool_use"}
                 messages.append({"role": "user", "content": tool_results})
+                # Append table reminder after any trade or analysis tool batch
+                if called_tools & (trade_tools | analysis_tools):
+                    messages.append({"role": "user", "content": (
+                        "[SYSTEM REMINDER: Before writing ANY response text, you MUST output the "
+                        "full summary table first. Every field filled in. Table comes before "
+                        "everything else — before execution confirmation, before analysis, before "
+                        "any commentary. This is non-negotiable.]"
+                    )})
         else:
             return "\n".join(b.text for b in response.content if hasattr(b, "text")) or "Unexpected error."
 
