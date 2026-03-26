@@ -173,6 +173,18 @@
     .typing-dot:nth-child(3) { animation-delay: .30s; }
     @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-5px)} }
 
+    /* streaming cursor blink */
+    .streaming-cursor {
+      display: inline-block;
+      width: 2px;
+      height: 1em;
+      background: var(--accent);
+      margin-left: 2px;
+      vertical-align: text-bottom;
+      animation: blink .7s infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
     .input-wrapper {
       background: var(--surface);
       border-top: 1px solid var(--border);
@@ -181,7 +193,57 @@
       flex-shrink: 0;
     }
 
+    /* image preview strip */
+    .image-preview-strip {
+      display: none;
+      gap: 8px;
+      padding: 8px 0 4px;
+      flex-wrap: wrap;
+    }
+    .image-preview-strip.has-images { display: flex; }
+    .preview-thumb {
+      position: relative;
+      width: 60px; height: 60px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .preview-thumb img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+    }
+    .preview-thumb .remove-img {
+      position: absolute;
+      top: 2px; right: 2px;
+      width: 16px; height: 16px;
+      background: rgba(0,0,0,.7);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      font-size: 10px;
+      color: #fff;
+      border: none;
+    }
+
     .input-row { display: flex; gap: 8px; align-items: flex-end; }
+
+    /* image attach button */
+    .attach-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      width: 44px; height: 44px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      color: var(--muted);
+      transition: border-color .2s, color .2s;
+    }
+    .attach-btn:active, .attach-btn.has-image {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .attach-btn svg { width: 18px; height: 18px; }
 
     textarea {
       flex: 1;
@@ -248,6 +310,14 @@
       margin: 3px 3px 3px 0;
     }
 
+    /* user bubble image */
+    .msg-image {
+      max-width: 200px;
+      border-radius: 10px;
+      margin-bottom: 6px;
+      display: block;
+    }
+
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
@@ -260,6 +330,7 @@
       .msg.user  { max-width: 75%; }
       .msg.agent { max-width: 85%; }
       .quick-btn:hover { background: rgba(0,212,170,.1); border-color: var(--accent); color: var(--accent); }
+      .attach-btn:hover { border-color: var(--accent); color: var(--accent); }
     }
   </style>
 </head>
@@ -288,21 +359,31 @@
       <div class="avatar">FS</div>
       <div class="bubble">
         <div class="welcome-card">
-          <h2>Howdy, Cody! 🤠</h2>
+          <h2>FinSight — Ready.</h2>
           <span class="tag">0DTE Options</span>
           <span class="tag">Weekly Calls</span>
           <span class="tag">Macro</span>
           <span class="tag">Geopolitical</span>
+          <span class="tag">Prediction Markets</span>
           <span class="tag">Roth IRA</span>
-          <span class="tag">401k</span>
         </div>
-        What are we tradin' today? Ask me anything or tap one of them buttons up top.
+        Markets open. Drop a screenshot or ask anything.
       </div>
     </div>
   </div>
 
+  <!-- hidden file input -->
+  <input type="file" id="imageInput" accept="image/*" multiple style="display:none" onchange="handleImageSelect(event)"/>
+
   <div class="input-wrapper">
+    <div class="image-preview-strip" id="previewStrip"></div>
     <div class="input-row">
+      <button class="attach-btn" id="attachBtn" onclick="document.getElementById('imageInput').click()" title="Attach image">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+          <polyline points="21 15 16 10 5 21"/>
+        </svg>
+      </button>
       <textarea id="userInput" placeholder="Ask FinSight anything..." rows="1"></textarea>
       <button class="clear-btn" onclick="clearChat()">Clear</button>
       <button class="send-btn" id="sendBtn" onclick="sendMessage()">
@@ -315,10 +396,15 @@
 
 <script>
   let conversationHistory = [];
-  const chat    = document.getElementById('chat');
-  const input   = document.getElementById('userInput');
-  const sendBtn = document.getElementById('sendBtn');
+  let pendingImages = []; // [{base64, mediaType, previewUrl}]
 
+  const chat      = document.getElementById('chat');
+  const input     = document.getElementById('userInput');
+  const sendBtn   = document.getElementById('sendBtn');
+  const attachBtn = document.getElementById('attachBtn');
+  const previewStrip = document.getElementById('previewStrip');
+
+  // ── auto-resize textarea ──
   input.addEventListener('input', () => {
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 120) + 'px';
@@ -331,6 +417,63 @@
     }
   });
 
+  // ── paste image directly into chat ──
+  document.addEventListener('paste', e => {
+    const items = e.clipboardData?.items || [];
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) processImageFile(file);
+      }
+    }
+  });
+
+  // ── image handling ──
+  function handleImageSelect(event) {
+    const files = Array.from(event.target.files);
+    files.forEach(processImageFile);
+    event.target.value = '';
+  }
+
+  function processImageFile(file) {
+    if (!file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl  = e.target.result;
+      const base64   = dataUrl.split(',')[1];
+      const mediaType = file.type;
+      pendingImages.push({ base64, mediaType, previewUrl: dataUrl });
+      renderPreviews();
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function renderPreviews() {
+    previewStrip.innerHTML = '';
+    if (pendingImages.length === 0) {
+      previewStrip.classList.remove('has-images');
+      attachBtn.classList.remove('has-image');
+      return;
+    }
+    previewStrip.classList.add('has-images');
+    attachBtn.classList.add('has-image');
+    pendingImages.forEach((img, i) => {
+      const thumb = document.createElement('div');
+      thumb.className = 'preview-thumb';
+      thumb.innerHTML = `
+        <img src="${img.previewUrl}" alt="attachment"/>
+        <button class="remove-img" onclick="removeImage(${i})">✕</button>
+      `;
+      previewStrip.appendChild(thumb);
+    });
+  }
+
+  function removeImage(i) {
+    pendingImages.splice(i, 1);
+    renderPreviews();
+  }
+
+  // ── helpers ──
   function quickSend(text) {
     input.value = text;
     input.style.height = 'auto';
@@ -341,24 +484,54 @@
     setTimeout(() => { chat.scrollTop = chat.scrollHeight; }, 50);
   }
 
-  function addMessage(role, content) {
-    const msg = document.createElement('div');
+  function addMessage(role, content, imageUrls = []) {
+    const msg    = document.createElement('div');
     msg.className = `msg ${role === 'user' ? 'user' : 'agent'}`;
     const avatar = document.createElement('div');
     avatar.className = 'avatar';
     avatar.textContent = role === 'user' ? 'You' : 'FS';
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
+
+    // show image thumbnails in user bubble
+    imageUrls.forEach(url => {
+      const img = document.createElement('img');
+      img.src = url;
+      img.className = 'msg-image';
+      bubble.appendChild(img);
+    });
+
     if (role === 'assistant') {
-      bubble.innerHTML = marked.parse(content);
+      bubble.innerHTML += marked.parse(content);
     } else {
-      bubble.textContent = content;
+      const txt = document.createElement('span');
+      txt.textContent = content;
+      bubble.appendChild(txt);
     }
+
     msg.appendChild(avatar);
     msg.appendChild(bubble);
     chat.appendChild(msg);
     scrollBottom();
     return msg;
+  }
+
+  // ── streaming message builder ──
+  function createStreamingBubble() {
+    const msg    = document.createElement('div');
+    msg.className = 'msg agent';
+    msg.id = 'streaming-msg';
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    avatar.textContent = 'FS';
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.id = 'streaming-bubble';
+    msg.appendChild(avatar);
+    msg.appendChild(bubble);
+    chat.appendChild(msg);
+    scrollBottom();
+    return bubble;
   }
 
   function addTypingIndicator() {
@@ -375,39 +548,123 @@
     if (t) t.remove();
   }
 
+  // ── main send ──
   async function sendMessage() {
     const text = input.value.trim();
-    if (!text || sendBtn.disabled) return;
+    if ((!text && pendingImages.length === 0) || sendBtn.disabled) return;
+
+    const imagesToSend   = [...pendingImages];
+    const previewUrls    = imagesToSend.map(i => i.previewUrl);
+
+    // reset input
     input.value = '';
     input.style.height = 'auto';
+    pendingImages = [];
+    renderPreviews();
     sendBtn.disabled = true;
     input.blur();
-    addMessage('user', text);
-    conversationHistory.push({ role: 'user', content: text });
+
+    // show user message
+    addMessage('user', text || '📎 Image attached', previewUrls);
+
+    // build content for history
+    let userContent;
+    if (imagesToSend.length > 0) {
+      userContent = [];
+      imagesToSend.forEach(img => {
+        userContent.push({
+          type: 'image',
+          source: { type: 'base64', media_type: img.mediaType, data: img.base64 }
+        });
+      });
+      if (text) userContent.push({ type: 'text', text });
+      else       userContent.push({ type: 'text', text: 'Analyze this image and give me your take.' });
+    } else {
+      userContent = text;
+    }
+
+    conversationHistory.push({ role: 'user', content: userContent });
+
+    // show typing dots while tools fire
     addTypingIndicator();
+
     try {
       const res = await fetch('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, history: conversationHistory.slice(0, -1) })
+        body: JSON.stringify({
+          message: text || 'Analyze this image and give me your take.',
+          history: conversationHistory.slice(0, -1),
+          images:  imagesToSend.map(i => ({ base64: i.base64, media_type: i.mediaType }))
+        })
       });
-      const data = await res.json();
+
       removeTypingIndicator();
-      if (data.error) {
-        addMessage('assistant', `❌ ${data.error}`);
-      } else {
-        addMessage('assistant', data.reply);
-        conversationHistory.push({ role: 'assistant', content: data.reply });
+
+      if (!res.ok) {
+        const err = await res.json();
+        addMessage('assistant', `❌ ${err.error || 'Server error'}`);
+        sendBtn.disabled = false;
+        return;
       }
+
+      // ── streaming via ReadableStream ──
+      const reader      = res.body.getReader();
+      const decoder     = new TextDecoder();
+      const bubble      = createStreamingBubble();
+      let   fullText    = '';
+      let   buffer      = '';
+
+      // blinking cursor
+      const cursor = document.createElement('span');
+      cursor.className = 'streaming-cursor';
+      bubble.appendChild(cursor);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // keep incomplete line
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const raw = line.slice(6).trim();
+          if (raw === '[DONE]') break;
+          try {
+            const json = JSON.parse(raw);
+            const chunk = json.text || '';
+            if (chunk) {
+              fullText += chunk;
+              // re-render markdown as it streams
+              bubble.innerHTML = marked.parse(fullText);
+              bubble.appendChild(cursor);
+              scrollBottom();
+            }
+          } catch {}
+        }
+      }
+
+      // final render without cursor
+      bubble.innerHTML = marked.parse(fullText || '(no response)');
+      bubble.id = '';
+      document.getElementById('streaming-msg') && (document.getElementById('streaming-msg').id = '');
+
+      conversationHistory.push({ role: 'assistant', content: fullText });
+
     } catch (err) {
       removeTypingIndicator();
       addMessage('assistant', '❌ Connection error. Check your internet and try again.');
     }
+
     sendBtn.disabled = false;
   }
 
   function clearChat() {
     conversationHistory = [];
+    pendingImages = [];
+    renderPreviews();
     const msgs = chat.querySelectorAll('.msg:not(:first-child)');
     msgs.forEach(m => m.remove());
   }
@@ -420,3 +677,5 @@
 </script>
 </body>
 </html>
+HTMLEOF
+echo "Done"
