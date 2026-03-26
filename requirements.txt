@@ -3,7 +3,4 @@ anthropic
 requests
 python-dotenv
 schedule
-gunicorn
 cryptography
-gevent
-gevent-websocket
