@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from functools import wraps
 from anthropic import Anthropic
-from dotenv import load_dotenv 
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -41,6 +41,9 @@ monitor_log    = []
 AUTO_EXECUTE_THRESHOLD  = int(os.getenv("AUTO_EXECUTE_THRESHOLD", "7"))
 AUTO_EXECUTE_MAX_DOLLAR = float(os.getenv("AUTO_EXECUTE_MAX_DOLLAR", "200"))
 MAX_OPTIONS_PREMIUM     = float(os.getenv("MAX_OPTIONS_PREMIUM", "0.80"))
+KALSHI_API_KEY_ID       = os.getenv("KALSHI_API_KEY_ID", "")
+KALSHI_PRIVATE_KEY      = os.getenv("KALSHI_PRIVATE_KEY", "")
+KALSHI_BASE_URL         = "https://api.elections.kalshi.com/trade-api/v2"
 
 # ─────────────────────────────────────────────
 #  0DTE SESSION LOGIC
@@ -219,6 +222,244 @@ def calculate_expected_move(ticker: str, option_type: str = "call") -> dict:
             "pct_of_move_used":   f"{pct_used}% of expected daily range used",
             "signal":             "late — most of the move is done" if pct_used > 70 else "room to move" if pct_used < 40 else "moderate — proceed with caution",
             "source":             "Tradier (IV) + Alpaca (price)"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ─────────────────────────────────────────────
+#  PREDICTION MARKET ENGINE
+# ─────────────────────────────────────────────
+import math
+
+def kalshi_headers(method: str = "GET", path: str = "") -> dict:
+    import base64
+    import time as _time
+    try:
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding
+        from cryptography.hazmat.backends import default_backend
+
+        ts         = str(int(_time.time() * 1000))
+        msg_string = ts + method.upper() + path
+        key_data   = KALSHI_PRIVATE_KEY.replace("\\n", "\n")
+
+        private_key = serialization.load_pem_private_key(
+            key_data.encode(), password=None, backend=default_backend()
+        )
+        signature = private_key.sign(msg_string.encode("utf-8"), padding.PKCS1v15(), hashes.SHA256())
+        sig_b64   = base64.b64encode(signature).decode("utf-8")
+
+        return {
+            "KALSHI-ACCESS-KEY":       KALSHI_API_KEY_ID,
+            "KALSHI-ACCESS-TIMESTAMP": ts,
+            "KALSHI-ACCESS-SIGNATURE": sig_b64,
+            "Content-Type":            "application/json",
+            "Accept":                  "application/json"
+        }
+    except Exception as e:
+        # Fallback to basic auth if cryptography not available
+        return {
+            "Authorization": f"Bearer {KALSHI_API_KEY_ID}",
+            "Content-Type":  "application/json",
+            "Accept":        "application/json"
+        }
+
+
+def get_kalshi_markets(query: str = "", limit: int = 10, status: str = "open") -> dict:
+    try:
+        params = {"limit": limit, "status": status}
+        if query:
+            params["search"] = query
+        path = "/trade-api/v2/markets"
+        r = requests.get(f"{KALSHI_BASE_URL}/markets",
+                         headers=kalshi_headers("GET", path), params=params, timeout=10)
+        data = r.json()
+        markets = data.get("markets", [])
+        results = []
+        for m in markets:
+            yes_price = m.get("yes_ask") or m.get("yes_bid") or 0
+            no_price  = m.get("no_ask")  or m.get("no_bid")  or 0
+            implied_prob = round(yes_price / 100, 4) if yes_price else None
+            results.append({
+                "ticker":        m.get("ticker"),
+                "title":         m.get("title"),
+                "category":      m.get("category"),
+                "status":        m.get("status"),
+                "close_time":    m.get("close_time"),
+                "yes_ask":       yes_price,
+                "no_ask":        no_price,
+                "implied_prob":  implied_prob,
+                "volume":        m.get("volume"),
+                "open_interest": m.get("open_interest"),
+                "rules":         m.get("rules_primary", "")[:200] if m.get("rules_primary") else ""
+            })
+        return {"markets": results, "count": len(results), "source": "Kalshi"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_kalshi_market_detail(ticker: str) -> dict:
+    try:
+        path = f"/trade-api/v2/markets/{ticker}"
+        r = requests.get(f"{KALSHI_BASE_URL}/markets/{ticker}",
+                         headers=kalshi_headers("GET", path), timeout=10)
+        m = r.json().get("market", {})
+        yes_price    = m.get("yes_ask") or m.get("yes_bid") or 0
+        no_price     = m.get("no_ask")  or m.get("no_bid")  or 0
+        implied_prob = round(yes_price / 100, 4) if yes_price else None
+        return {
+            "ticker":        m.get("ticker"),
+            "title":         m.get("title"),
+            "category":      m.get("category"),
+            "status":        m.get("status"),
+            "close_time":    m.get("close_time"),
+            "yes_ask":       yes_price,
+            "no_ask":        no_price,
+            "implied_prob":  implied_prob,
+            "volume_24h":    m.get("volume_24h"),
+            "open_interest": m.get("open_interest"),
+            "rules":         m.get("rules_primary", "")[:500] if m.get("rules_primary") else "",
+            "source":        "Kalshi"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def calculate_bayesian_probability(
+    base_rate: float,
+    evidence_items: list,
+) -> dict:
+    """
+    Bayesian probability updater.
+    base_rate: prior probability (0-1)
+    evidence_items: list of dicts with keys:
+        - description: str
+        - likelihood_ratio: float (>1 = supports YES, <1 = supports NO)
+    Returns updated posterior probability and full reasoning chain.
+    """
+    try:
+        prior_odds = base_rate / (1 - base_rate) if base_rate < 1 else 999
+        posterior_odds = prior_odds
+        steps = [{"step": "Prior", "odds": round(prior_odds, 4),
+                  "prob": round(base_rate, 4), "note": f"Base rate: {base_rate*100:.1f}%"}]
+
+        for item in evidence_items:
+            lr = item.get("likelihood_ratio", 1.0)
+            posterior_odds *= lr
+            prob = posterior_odds / (1 + posterior_odds)
+            steps.append({
+                "step":        item.get("description", "Evidence"),
+                "lr":          lr,
+                "odds":        round(posterior_odds, 4),
+                "prob":        round(prob, 4),
+                "direction":   "supports YES" if lr > 1 else "supports NO" if lr < 1 else "neutral"
+            })
+
+        final_prob = posterior_odds / (1 + posterior_odds)
+        return {
+            "prior":          base_rate,
+            "posterior":      round(final_prob, 4),
+            "posterior_pct":  f"{final_prob*100:.1f}%",
+            "reasoning_chain": steps,
+            "confidence":     "high" if len(evidence_items) >= 3 else "medium" if len(evidence_items) >= 1 else "low"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def calculate_kelly_criterion(
+    our_probability: float,
+    market_yes_price: float,
+    bankroll: float = 1000.0,
+    max_fraction: float = 0.25
+) -> dict:
+    """
+    Kelly Criterion for prediction market sizing.
+    our_probability: our estimated prob of YES (0-1)
+    market_yes_price: Kalshi yes price in cents (e.g. 55 = 55 cents = $0.55)
+    bankroll: total available capital
+    max_fraction: cap Kelly at this fraction to avoid overbetting
+    """
+    try:
+        p   = our_probability
+        q   = 1 - p
+        b   = (100 - market_yes_price) / market_yes_price  # odds on a $1 bet
+
+        kelly_fraction = (p * b - q) / b
+        kelly_fraction = max(0, min(kelly_fraction, max_fraction))
+
+        bet_amount = round(bankroll * kelly_fraction, 2)
+        edge       = round((p - (market_yes_price / 100)) * 100, 2)
+
+        return {
+            "our_prob":       f"{p*100:.1f}%",
+            "market_prob":    f"{market_yes_price:.0f}%",
+            "edge":           f"{edge:+.1f}%",
+            "kelly_fraction": f"{kelly_fraction*100:.1f}%",
+            "recommended_bet": f"${bet_amount:.2f}",
+            "bankroll":       f"${bankroll:.2f}",
+            "bet_side":       "YES" if p > market_yes_price/100 else "NO",
+            "signal":         "strong edge" if abs(edge) > 10 else "moderate edge" if abs(edge) > 5 else "weak edge — consider passing",
+            "note":           "Kelly fraction capped at 25% max to prevent overbetting"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def analyze_prediction_market(ticker: str, our_probability: float = None) -> dict:
+    """
+    Full prediction market analysis combining Kalshi data, implied probability,
+    and edge calculation. If our_probability is provided, runs Kelly sizing too.
+    """
+    try:
+        detail = get_kalshi_market_detail(ticker)
+        if "error" in detail:
+            return detail
+
+        yes_price    = detail.get("yes_ask", 0)
+        implied_prob = detail.get("implied_prob", 0)
+
+        result = {
+            "market":       detail,
+            "implied_prob": f"{implied_prob*100:.1f}%" if implied_prob else "N/A",
+        }
+
+        if our_probability is not None:
+            edge = round((our_probability - implied_prob) * 100, 2)
+            result["our_probability"] = f"{our_probability*100:.1f}%"
+            result["edge"]            = f"{edge:+.1f}%"
+            result["bet_side"]        = "YES" if our_probability > implied_prob else "NO"
+            result["signal"]          = (
+                "strong edge — consider betting" if abs(edge) > 10 else
+                "moderate edge" if abs(edge) > 5 else
+                "weak edge — market may be efficient here"
+            )
+            kelly = calculate_kelly_criterion(our_probability, yes_price)
+            result["kelly_sizing"] = kelly
+
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_prediction_market_categories() -> dict:
+    """Get available prediction market categories from Kalshi."""
+    try:
+        path = "/trade-api/v2/markets"
+        r = requests.get(f"{KALSHI_BASE_URL}/markets",
+                         headers=kalshi_headers("GET", path),
+                         params={"limit": 100, "status": "open"}, timeout=10)
+        markets = r.json().get("markets", [])
+        categories = {}
+        for m in markets:
+            cat = m.get("category", "Other")
+            categories[cat] = categories.get(cat, 0) + 1
+        return {
+            "categories": [{"category": k, "market_count": v}
+                           for k, v in sorted(categories.items(), key=lambda x: -x[1])],
+            "total_open_markets": len(markets),
+            "source": "Kalshi"
         }
     except Exception as e:
         return {"error": str(e)}
@@ -493,6 +734,34 @@ The monitor checks every 60 seconds and auto-sells when any condition triggers.
 - For performance reviews: use get_performance_summary AND get_recent_trades.
 - Be brutally honest about losing patterns. Don't sugarcoat bad data.
 
+## PREDICTION MARKETS
+You are also an expert prediction market analyst. When asked about prediction markets, events, or probabilities:
+
+1. ALWAYS pull live Kalshi data first with get_kalshi_markets or get_kalshi_market_detail.
+2. Build your own probability estimate using Bayesian reasoning (calculate_bayesian_probability) — start with a historical base rate, then update with current evidence. Show your reasoning chain.
+3. Compare your estimate to the market's implied probability. The difference is your EDGE.
+4. If edge > 5%, calculate optimal bet size with calculate_kelly_criterion.
+5. Always present a prediction market recommendation in this format:
+
+| Parameter | Value |
+|-----------|-------|
+| Market | |
+| Question | |
+| Market Implied Prob | |
+| Our Bayesian Estimate | |
+| Edge | |
+| Bet Side | YES / NO |
+| Kelly Bet Size | |
+| Confidence | |
+| Key Evidence | |
+| Risk Factors | |
+
+Rules:
+- Never bet into a market with edge < 5% — it's not worth the risk.
+- Always show the Bayesian reasoning chain so the user understands WHY.
+- For political/macro markets, pull relevant news first with get_financial_news.
+- Be honest when the market is well-calibrated and there's no edge — say so directly.
+
 ## GEOPOLITICAL & MACRO ANALYSIS
 - Connect global events to specific sector and ticker impacts.
 - Cover: Fed/ECB/BOJ policy, conflicts, trade/tariffs, FX, commodities.
@@ -675,6 +944,82 @@ TOOLS = [
             },
             "required": ["ticker", "option_type"]
         }
+    },
+    {
+        "name": "get_kalshi_markets",
+        "description": "Search live Kalshi prediction markets by keyword. Returns implied probabilities, prices, volume. Use for any question about prediction markets, political events, economic outcomes, sports, or world events.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search term e.g. 'Fed rate cut', 'election', 'recession', 'Super Bowl'"},
+                "limit": {"type": "integer", "description": "Number of markets to return (default 10)", "default": 10}
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "get_kalshi_market_detail",
+        "description": "Get full details on a specific Kalshi market by ticker including current yes/no prices, implied probability, volume, and resolution rules.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string", "description": "Kalshi market ticker e.g. 'FED-25JUN-T5.25'"}
+            },
+            "required": ["ticker"]
+        }
+    },
+    {
+        "name": "analyze_prediction_market",
+        "description": "Full prediction market analysis: pulls Kalshi market data, calculates implied probability, compares to our estimate, computes edge and Kelly Criterion bet sizing. Use when asked to analyze or recommend a prediction market bet.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker":           {"type": "string", "description": "Kalshi market ticker"},
+                "our_probability":  {"type": "number", "description": "Our estimated probability of YES (0-1). If not provided, just returns market data."}
+            },
+            "required": ["ticker"]
+        }
+    },
+    {
+        "name": "calculate_bayesian_probability",
+        "description": "Run a Bayesian probability update. Start with a base rate and update it with evidence items. Each evidence item has a likelihood ratio (>1 supports YES, <1 supports NO). Use when building a probability estimate from scratch.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "base_rate": {"type": "number", "description": "Prior probability (0-1) before considering new evidence"},
+                "evidence_items": {
+                    "type": "array",
+                    "description": "List of evidence items",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "description":      {"type": "string"},
+                            "likelihood_ratio": {"type": "number", "description": ">1 supports YES, <1 supports NO, 1 = neutral"}
+                        }
+                    }
+                }
+            },
+            "required": ["base_rate", "evidence_items"]
+        }
+    },
+    {
+        "name": "calculate_kelly_criterion",
+        "description": "Calculate optimal bet size using Kelly Criterion given our probability estimate vs market price.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "our_probability":   {"type": "number", "description": "Our estimated probability of YES (0-1)"},
+                "market_yes_price":  {"type": "number", "description": "Current Kalshi yes price in cents (e.g. 55 for 55 cents)"},
+                "bankroll":          {"type": "number", "description": "Total available capital in dollars", "default": 1000},
+                "max_fraction":      {"type": "number", "description": "Maximum fraction of bankroll to bet (default 0.25)", "default": 0.25}
+            },
+            "required": ["our_probability", "market_yes_price"]
+        }
+    },
+    {
+        "name": "get_prediction_market_categories",
+        "description": "Get all available prediction market categories on Kalshi with market counts. Use to give user an overview of what's available to bet on.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
     }
 ]
 
@@ -1181,9 +1526,15 @@ def run_tool(tool_name: str, tool_input: dict) -> str:
         "cancel_trade_monitor":   lambda: cancel_trade_monitor(**tool_input),
         "get_performance_summary":lambda: get_performance_summary(),
         "get_recent_trades":      lambda: get_recent_trades(**tool_input),
-        "get_trading_session":    lambda: get_trading_session(),
-        "get_vwap":               lambda: calculate_vwap(**tool_input),
-        "get_expected_move":      lambda: calculate_expected_move(**tool_input),
+        "get_trading_session":              lambda: get_trading_session(),
+        "get_vwap":                         lambda: calculate_vwap(**tool_input),
+        "get_expected_move":                lambda: calculate_expected_move(**tool_input),
+        "get_kalshi_markets":               lambda: get_kalshi_markets(**tool_input),
+        "get_kalshi_market_detail":         lambda: get_kalshi_market_detail(**tool_input),
+        "analyze_prediction_market":        lambda: analyze_prediction_market(**tool_input),
+        "calculate_bayesian_probability":   lambda: calculate_bayesian_probability(**tool_input),
+        "calculate_kelly_criterion":        lambda: calculate_kelly_criterion(**tool_input),
+        "get_prediction_market_categories": lambda: get_prediction_market_categories(),
     }
     handler = handlers.get(tool_name)
     result  = handler() if handler else {"error": f"Unknown tool: {tool_name}"}
