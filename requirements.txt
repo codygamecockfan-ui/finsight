@@ -4,3 +4,5 @@ requests
 python-dotenv
 schedule
 cryptography
+pytest
+pytest-cov
