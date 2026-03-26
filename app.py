@@ -6,7 +6,7 @@ import threading
 import time
 import hashlib
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context
 from functools import wraps
 from anthropic import Anthropic
 from dotenv import load_dotenv
@@ -1743,8 +1743,8 @@ monitor_thread.start()
 #  AGENT LOOP
 # ─────────────────────────────────────────────
 def run_agent(conversation_history: list) -> str:
+    """Non-streaming agent — used internally."""
     messages = conversation_history.copy()
-    # Inject current time so Claude never guesses
     current_time = datetime.now().strftime("%Y-%m-%d %I:%M %p ET")
     system_with_time = SYSTEM_PROMPT + f"\n\n## CURRENT TIME\nThe current date and time is {current_time}. Always use this as your reference — never estimate or guess the time."
     while True:
@@ -1763,15 +1763,71 @@ def run_agent(conversation_history: list) -> str:
             for block in response.content:
                 if block.type == "tool_use":
                     print(f"[FinSight] Tool: {block.name} | Input: {block.input}")
-                    content = run_tool(block.name, block.input)
+                    result = run_tool(block.name, block.input)
                     tool_results.append({
                         "type": "tool_result", "tool_use_id": block.id,
-                        "content": content or json.dumps({"error": "Empty response"})
+                        "content": result or json.dumps({"error": "Empty response"})
                     })
             if tool_results:
                 messages.append({"role": "user", "content": tool_results})
         else:
             return "\n".join(b.text for b in response.content if hasattr(b, "text")) or "Unexpected error."
+
+
+def run_agent_streaming(conversation_history: list):
+    """
+    Streaming agent — runs tool calls synchronously then streams final response.
+    Yields SSE chunks: data: {"text": "..."} or data: [DONE]
+    """
+    import json as _json
+    messages = conversation_history.copy()
+    current_time = datetime.now().strftime("%Y-%m-%d %I:%M %p ET")
+    system_with_time = SYSTEM_PROMPT + f"\n\n## CURRENT TIME\nThe current date and time is {current_time}. Always use this as your reference — never estimate or guess the time."
+
+    # Phase 1: run all tool calls non-streaming
+    while True:
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=4096,
+            system=system_with_time,
+            tools=TOOLS,
+            messages=messages
+        )
+        messages.append({"role": "assistant", "content": response.content})
+
+        if response.stop_reason == "end_turn":
+            # Final text — stream it
+            final_text = "\n".join(b.text for b in response.content if hasattr(b, "text"))
+            # Stream word by word for smooth feel
+            words = final_text.split(" ")
+            chunk = ""
+            for i, word in enumerate(words):
+                chunk += word + (" " if i < len(words) - 1 else "")
+                if len(chunk) >= 4:  # emit every ~4 chars
+                    yield f"data: {_json.dumps({'text': chunk})}\n\n"
+                    chunk = ""
+            if chunk:
+                yield f"data: {_json.dumps({'text': chunk})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        if response.stop_reason == "tool_use":
+            tool_results = []
+            for block in response.content:
+                if block.type == "tool_use":
+                    print(f"[FinSight] Tool: {block.name} | Input: {block.input}")
+                    result = run_tool(block.name, block.input)
+                    tool_results.append({
+                        "type": "tool_result", "tool_use_id": block.id,
+                        "content": result or _json.dumps({"error": "Empty response"})
+                    })
+            if tool_results:
+                messages.append({"role": "user", "content": tool_results})
+        else:
+            final_text = "\n".join(b.text for b in response.content if hasattr(b, "text")) or "Unexpected error."
+            yield f"data: {_json.dumps({'text': final_text})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
 
 
 # ─────────────────────────────────────────────
@@ -1819,18 +1875,52 @@ def index():
 @app.route("/chat", methods=["POST"])
 @login_required
 def chat():
+    import json as _json
     data         = request.json
     history      = data.get("history", [])
     user_message = data.get("message", "")
-    if not user_message:
+    images       = data.get("images", [])  # [{base64, media_type}]
+
+    if not user_message and not images:
         return jsonify({"error": "No message provided"}), 400
-    history.append({"role": "user", "content": user_message})
-    try:
-        reply = run_agent(history)
-        history.append({"role": "assistant", "content": reply})
-        return jsonify({"reply": reply, "history": history})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+
+    # Build user content — text + optional images
+    if images:
+        user_content = []
+        for img in images:
+            user_content.append({
+                "type": "image",
+                "source": {
+                    "type":       "base64",
+                    "media_type": img.get("media_type", "image/jpeg"),
+                    "data":       img.get("base64", "")
+                }
+            })
+        user_content.append({
+            "type": "text",
+            "text": user_message or "Analyze this image and give me your trading take."
+        })
+    else:
+        user_content = user_message
+
+    history.append({"role": "user", "content": user_content})
+
+    def generate():
+        try:
+            yield from run_agent_streaming(history)
+        except Exception as e:
+            yield f"data: {_json.dumps({'text': f'Error: {str(e)}'})}\n\n"
+            yield "data: [DONE]\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control":               "no-cache",
+            "X-Accel-Buffering":           "no",
+            "Access-Control-Allow-Origin": "*"
+        }
+    )
 
 
 @app.route("/monitor")
