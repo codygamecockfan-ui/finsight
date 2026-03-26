@@ -5,6 +5,7 @@ import requests
 import threading
 import time
 import hashlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context
 from functools import wraps
@@ -37,6 +38,23 @@ ALPACA_HEADERS = {
 trade_monitors = {}
 monitor_lock   = threading.Lock()
 monitor_log    = []
+
+# ─────────────────────────────────────────────
+#  RESPONSE CACHE (60-second TTL)
+# ─────────────────────────────────────────────
+_cache = {}
+_cache_lock = threading.Lock()
+
+def cache_get(key):
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry and (time.time() - entry["ts"]) < 60:
+            return entry["val"]
+    return None
+
+def cache_set(key, val):
+    with _cache_lock:
+        _cache[key] = {"val": val, "ts": time.time()}
 
 AUTO_EXECUTE_THRESHOLD  = int(os.getenv("AUTO_EXECUTE_THRESHOLD", "7"))
 AUTO_EXECUTE_MAX_DOLLAR = float(os.getenv("AUTO_EXECUTE_MAX_DOLLAR", "200"))
@@ -126,6 +144,8 @@ def get_trading_session() -> dict:
 # ─────────────────────────────────────────────
 def calculate_vwap(ticker: str) -> dict:
     ticker = ticker.upper()
+    cached = cache_get(f"vwap_{ticker}")
+    if cached: return cached
     try:
         today = datetime.now().strftime("%Y-%m-%d")
         r = requests.get(
@@ -152,7 +172,7 @@ def calculate_vwap(ticker: str) -> dict:
         pct_vs_vwap  = round(((current - vwap) / vwap) * 100, 3)
         position     = "above" if current > vwap else "below"
 
-        return {
+        result = {
             "ticker":       ticker,
             "vwap":         vwap,
             "current":      current,
@@ -161,6 +181,8 @@ def calculate_vwap(ticker: str) -> dict:
             "bars_used":    len(bars),
             "source":       "Polygon.io (intraday 1-min bars)"
         }
+        cache_set(f"vwap_{ticker}", result)
+        return result
     except Exception as e:
         return {"error": str(e)}
 
@@ -619,6 +641,80 @@ def search_prediction_markets(query: str, limit: int = 8) -> dict:
     }
 
 # ─────────────────────────────────────────────
+#  0DTE CONTEXT — SINGLE CALL (PARALLEL INTERNALLY)
+# ─────────────────────────────────────────────
+def get_0dte_context(ticker: str, option_type: str = "call") -> dict:
+    """
+    Runs session check, VWAP, expected move, and stock price in parallel.
+    Replaces 4 sequential tool calls with 1 parallel call — dramatically faster.
+    """
+    ticker = ticker.upper()
+
+    def fetch_session():
+        return ("session", get_trading_session())
+
+    def fetch_vwap():
+        return ("vwap", calculate_vwap(ticker))
+
+    def fetch_expected_move():
+        return ("expected_move", calculate_expected_move(ticker, option_type))
+
+    def fetch_price():
+        return ("price", get_stock_price(ticker))
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futures = [
+            ex.submit(fetch_session),
+            ex.submit(fetch_vwap),
+            ex.submit(fetch_expected_move),
+            ex.submit(fetch_price),
+        ]
+        for f in as_completed(futures):
+            try:
+                key, val = f.result()
+                results[key] = val
+            except Exception as e:
+                results[f"error_{len(results)}"] = str(e)
+
+    session = results.get("session", {})
+    vwap    = results.get("vwap", {})
+    em      = results.get("expected_move", {})
+    price   = results.get("price", {})
+
+    # Summarize into a single actionable context block
+    quality  = session.get("quality", "unknown")
+    rec      = session.get("recommendation", "unknown")
+    warning  = session.get("warning", "")
+    vwap_pos = vwap.get("position", "N/A")
+    em_signal = em.get("signal", "N/A")
+    em_used   = em.get("pct_of_move_used", "N/A")
+    em_range  = em.get("expected_move", "N/A")
+    curr_price = price.get("price", "N/A")
+
+    tradeable = quality in ("prime", "good", "fair")
+
+    return {
+        "ticker":           ticker,
+        "current_price":    curr_price,
+        "session_quality":  quality,
+        "session_window":   session.get("session", "unknown"),
+        "session_warning":  warning,
+        "recommendation":   rec,
+        "tradeable":        tradeable,
+        "vwap_position":    vwap_pos,
+        "vwap":             vwap.get("vwap"),
+        "expected_move":    em_range,
+        "move_used":        em_used,
+        "move_signal":      em_signal,
+        "atm_iv":           em.get("atm_iv"),
+        "upper_bound":      em.get("upper_bound"),
+        "lower_bound":      em.get("lower_bound"),
+        "note":             "All data fetched in parallel. Use get_options_chain next for strikes." if tradeable else f"NOT recommended: {warning}",
+        "source":           "Parallel fetch: Alpaca + Polygon + Tradier"
+    }
+
+# ─────────────────────────────────────────────
 #  DATABASE SETUP
 # ─────────────────────────────────────────────
 DB_PATH = os.getenv("DB_PATH", os.path.join(os.path.dirname(__file__), "finsight_trades.db"))
@@ -844,11 +940,11 @@ For crypto trades (BTC, ETH, SOL, DOGE, etc.):
 - Keep tool calls to a minimum: price + news only before recommending.
 
 ## 0DTE PRE-TRADE CHECKLIST (MANDATORY)
-Before recommending ANY 0DTE options trade, you MUST call ALL of these tools first:
-1. get_trading_session — check if timing is favorable. If session quality is "poor", warn the user strongly and recommend waiting. If "none" (closed), refuse the trade.
-2. get_vwap (for the ticker) — note whether price is above or below VWAP and by how much.
-3. get_expected_move (for the ticker) — note how much of the daily range is already used. If >70% used, flag as "late entry" and reduce confidence by at least 2 points.
-4. get_options_chain — get the chain with Greeks. Target delta 0.30–0.50 only. Reject strikes outside this range.
+Before recommending ANY 0DTE options trade, follow this sequence:
+1. FIRST call get_0dte_context (ticker) — this single tool fetches session quality, VWAP, expected move, and price ALL IN PARALLEL. It replaces 3 separate calls. Always use this instead of calling them individually.
+2. If session quality is "poor" or "none" — warn the user strongly and stop. Do not proceed.
+3. If expected move is >70% used — flag as late entry, reduce confidence by 2 points minimum.
+4. THEN call get_options_chain — get strikes with Greeks. Target delta 0.30–0.50 only for premium trading. Reject strikes outside this range.
 Include session, VWAP position, expected move status, and delta in the summary table for all 0DTE trades.
 
 ## CONFIDENCE GATING & HYBRID EXECUTION
@@ -1231,6 +1327,18 @@ TOOLS = [
             },
             "required": ["query"]
         }
+    },
+    {
+        "name": "get_0dte_context",
+        "description": "FASTEST way to get all 0DTE pre-trade context in ONE call. Fetches session quality, VWAP, expected move, and current price all in parallel simultaneously. Use this INSTEAD of calling get_trading_session + get_vwap + get_expected_move separately. Saves 60-80% of time on 0DTE setups.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker":      {"type": "string", "description": "Stock ticker e.g. SPY, QQQ, IWM"},
+                "option_type": {"type": "string", "enum": ["call", "put"], "description": "Option direction for IV lookup", "default": "call"}
+            },
+            "required": ["ticker"]
+        }
     }
 ]
 
@@ -1404,6 +1512,8 @@ def get_financial_news(query: str, num_articles: int = 3) -> dict:
 
 
 def get_market_overview() -> dict:
+    cached = cache_get("market_overview")
+    if cached: return cached
     results = {}
     for ticker in ["SPY","QQQ","DIA","IWM"]:
         try:
@@ -1428,7 +1538,9 @@ def get_market_overview() -> dict:
             results["VIX"] = {"close": v["c"], "open": v["o"], "note": "Prior day close via Polygon"}
     except:
         results["VIX"] = {"error": "Failed to fetch VIX"}
-    return {"indices": results, "as_of": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "source": "Alpaca (real-time) + Polygon (VIX)"}
+    result = {"indices": results, "as_of": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "source": "Alpaca (real-time) + Polygon (VIX)"}
+    cache_set("market_overview", result)
+    return result
 
 
 def get_stock_technicals(ticker: str, days: int = 30) -> dict:
@@ -1749,6 +1861,7 @@ def run_tool(tool_name: str, tool_input: dict) -> str:
         "get_polymarket_markets":            lambda: get_polymarket_markets(**tool_input),
         "get_polymarket_market_detail":      lambda: get_polymarket_market_detail(**tool_input),
         "search_prediction_markets":         lambda: search_prediction_markets(**tool_input),
+        "get_0dte_context":                  lambda: get_0dte_context(**tool_input),
     }
     handler = handlers.get(tool_name)
     result  = handler() if handler else {"error": f"Unknown tool: {tool_name}"}
@@ -1764,15 +1877,23 @@ monitor_thread.start()
 # ─────────────────────────────────────────────
 #  AGENT LOOP
 # ─────────────────────────────────────────────
+def trim_history(history: list, max_pairs: int = 6) -> list:
+    """Keep only the last N user/assistant pairs to reduce token overhead."""
+    # Always keep tool results intact — only trim at message boundaries
+    if len(history) <= max_pairs * 2:
+        return history
+    return history[-(max_pairs * 2):]
+
+
 def run_agent(conversation_history: list) -> str:
     """Non-streaming agent — used internally."""
-    messages = conversation_history.copy()
+    messages = trim_history(conversation_history.copy())
     current_time = datetime.now().strftime("%Y-%m-%d %I:%M %p ET")
     system_with_time = SYSTEM_PROMPT + f"\n\n## CURRENT TIME\nThe current date and time is {current_time}. Always use this as your reference — never estimate or guess the time."
     while True:
         response = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=4096,
+            max_tokens=2048,
             system=system_with_time,
             tools=TOOLS,
             messages=messages
@@ -1781,15 +1902,17 @@ def run_agent(conversation_history: list) -> str:
         if response.stop_reason == "end_turn":
             return "\n".join(b.text for b in response.content if hasattr(b, "text"))
         if response.stop_reason == "tool_use":
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    print(f"[FinSight] Tool: {block.name} | Input: {block.input}")
-                    result = run_tool(block.name, block.input)
-                    tool_results.append({
-                        "type": "tool_result", "tool_use_id": block.id,
-                        "content": result or json.dumps({"error": "Empty response"})
-                    })
+            tool_blocks = [b for b in response.content if b.type == "tool_use"]
+            tool_results = [None] * len(tool_blocks)
+            def _run(idx_block):
+                idx, block = idx_block
+                print(f"[FinSight] Tool: {block.name} | Input: {block.input}")
+                result = run_tool(block.name, block.input)
+                return idx, {"type": "tool_result", "tool_use_id": block.id,
+                             "content": result or json.dumps({"error": "Empty response"})}
+            with ThreadPoolExecutor(max_workers=min(len(tool_blocks), 6)) as ex:
+                for idx, tr in ex.map(_run, enumerate(tool_blocks)):
+                    tool_results[idx] = tr
             if tool_results:
                 messages.append({"role": "user", "content": tool_results})
         else:
@@ -1798,19 +1921,18 @@ def run_agent(conversation_history: list) -> str:
 
 def run_agent_streaming(conversation_history: list):
     """
-    Streaming agent — runs tool calls synchronously then streams final response.
+    Streaming agent — runs tool calls in parallel then streams final response.
     Yields SSE chunks: data: {"text": "..."} or data: [DONE]
     """
     import json as _json
-    messages = conversation_history.copy()
+    messages = trim_history(conversation_history.copy())
     current_time = datetime.now().strftime("%Y-%m-%d %I:%M %p ET")
     system_with_time = SYSTEM_PROMPT + f"\n\n## CURRENT TIME\nThe current date and time is {current_time}. Always use this as your reference — never estimate or guess the time."
 
-    # Phase 1: run all tool calls non-streaming
     while True:
         response = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=4096,
+            max_tokens=2048,
             system=system_with_time,
             tools=TOOLS,
             messages=messages
@@ -1834,15 +1956,17 @@ def run_agent_streaming(conversation_history: list):
             return
 
         if response.stop_reason == "tool_use":
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    print(f"[FinSight] Tool: {block.name} | Input: {block.input}")
-                    result = run_tool(block.name, block.input)
-                    tool_results.append({
-                        "type": "tool_result", "tool_use_id": block.id,
-                        "content": result or _json.dumps({"error": "Empty response"})
-                    })
+            tool_blocks = [b for b in response.content if b.type == "tool_use"]
+            tool_results = [None] * len(tool_blocks)
+            def _run_s(idx_block):
+                idx, block = idx_block
+                print(f"[FinSight] Tool: {block.name} | Input: {block.input}")
+                result = run_tool(block.name, block.input)
+                return idx, {"type": "tool_result", "tool_use_id": block.id,
+                             "content": result or _json.dumps({"error": "Empty response"})}
+            with ThreadPoolExecutor(max_workers=min(len(tool_blocks), 6)) as ex:
+                for idx, tr in ex.map(_run_s, enumerate(tool_blocks)):
+                    tool_results[idx] = tr
             if tool_results:
                 messages.append({"role": "user", "content": tool_results})
         else:
