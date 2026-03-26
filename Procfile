@@ -1,2 +1,2 @@
-web: gunicorn app:app --worker-class gevent --workers 1 --worker-connections 100 --timeout 120
+web: python app.py
 worker: python scheduler.py
