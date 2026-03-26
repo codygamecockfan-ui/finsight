@@ -464,6 +464,146 @@ def get_prediction_market_categories() -> dict:
     except Exception as e:
         return {"error": str(e)}
 
+
+# ─────────────────────────────────────────────
+#  POLYMARKET ENGINE
+# ─────────────────────────────────────────────
+POLYMARKET_BASE_URL = "https://gamma-api.polymarket.com"
+POLYMARKET_CLOB_URL = "https://clob.polymarket.com"
+
+def get_polymarket_markets(query: str = "", limit: int = 10) -> dict:
+    """Search active Polymarket markets. No auth required."""
+    try:
+        params = {"limit": limit, "active": "true", "closed": "false"}
+        if query:
+            params["search"] = query
+        r = requests.get(f"{POLYMARKET_BASE_URL}/markets",
+                         params=params, timeout=10)
+        markets = r.json() if isinstance(r.json(), list) else r.json().get("markets", [])
+        results = []
+        for m in markets[:limit]:
+            outcomes = m.get("outcomes", "[]")
+            if isinstance(outcomes, str):
+                try:
+                    import json as _json
+                    outcomes = _json.loads(outcomes)
+                except:
+                    outcomes = []
+            prices_str = m.get("outcomePrices", "[]")
+            if isinstance(prices_str, str):
+                try:
+                    import json as _json
+                    prices = _json.loads(prices_str)
+                except:
+                    prices = []
+            else:
+                prices = prices_str
+
+            yes_price = None
+            no_price  = None
+            if outcomes and prices and len(prices) >= 2:
+                try:
+                    yes_price = round(float(prices[0]) * 100, 1)
+                    no_price  = round(float(prices[1]) * 100, 1)
+                except:
+                    pass
+
+            results.append({
+                "id":           m.get("id"),
+                "question":     m.get("question"),
+                "category":     m.get("category", ""),
+                "end_date":     m.get("endDate", ""),
+                "yes_price":    yes_price,
+                "no_price":     no_price,
+                "implied_prob": round(yes_price / 100, 4) if yes_price else None,
+                "volume":       m.get("volume"),
+                "liquidity":    m.get("liquidity"),
+                "url":          f"https://polymarket.com/event/{m.get('slug', '')}",
+            })
+        return {
+            "markets": results,
+            "count":   len(results),
+            "source":  "Polymarket (no auth required)"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_polymarket_market_detail(market_id: str) -> dict:
+    """Get full detail on a specific Polymarket market by ID or slug."""
+    try:
+        r = requests.get(f"{POLYMARKET_BASE_URL}/markets/{market_id}", timeout=10)
+        m = r.json()
+        outcomes = m.get("outcomes", "[]")
+        if isinstance(outcomes, str):
+            import json as _json
+            try: outcomes = _json.loads(outcomes)
+            except: outcomes = []
+        prices_str = m.get("outcomePrices", "[]")
+        if isinstance(prices_str, str):
+            import json as _json
+            try: prices = _json.loads(prices_str)
+            except: prices = []
+        else:
+            prices = prices_str
+
+        yes_price = None
+        no_price  = None
+        if prices and len(prices) >= 2:
+            try:
+                yes_price = round(float(prices[0]) * 100, 1)
+                no_price  = round(float(prices[1]) * 100, 1)
+            except:
+                pass
+
+        return {
+            "id":           m.get("id"),
+            "question":     m.get("question"),
+            "description":  (m.get("description") or "")[:400],
+            "category":     m.get("category", ""),
+            "end_date":     m.get("endDate", ""),
+            "yes_price":    yes_price,
+            "no_price":     no_price,
+            "implied_prob": round(yes_price / 100, 4) if yes_price else None,
+            "volume":       m.get("volume"),
+            "liquidity":    m.get("liquidity"),
+            "url":          f"https://polymarket.com/event/{m.get('slug', '')}",
+            "source":       "Polymarket"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def search_prediction_markets(query: str, limit: int = 8) -> dict:
+    """
+    Search BOTH Kalshi and Polymarket simultaneously.
+    Returns combined results — best fallback when one source is dry.
+    """
+    kalshi_results   = get_kalshi_markets(query, limit=limit // 2)
+    poly_results     = get_polymarket_markets(query, limit=limit // 2)
+
+    kalshi_markets   = kalshi_results.get("markets", []) if "error" not in kalshi_results else []
+    poly_markets     = poly_results.get("markets", [])   if "error" not in poly_results   else []
+
+    # Tag source on each
+    for m in kalshi_markets: m["source"] = "Kalshi"
+    for m in poly_markets:   m["source"] = "Polymarket"
+
+    all_markets = kalshi_markets + poly_markets
+
+    # Filter to only markets with actual pricing
+    priced = [m for m in all_markets if m.get("implied_prob") is not None]
+    unpriced = [m for m in all_markets if m.get("implied_prob") is None]
+
+    return {
+        "query":          query,
+        "priced_markets": priced,
+        "unpriced_markets_count": len(unpriced),
+        "kalshi_count":   len(kalshi_markets),
+        "poly_count":     len(poly_markets),
+        "note":           "Priced markets only are recommended for betting — unpriced have no liquidity."
+    }
+
 # ─────────────────────────────────────────────
 #  DATABASE SETUP
 # ─────────────────────────────────────────────
@@ -737,7 +877,7 @@ The monitor checks every 60 seconds and auto-sells when any condition triggers.
 ## PREDICTION MARKETS
 You are also an expert prediction market analyst. When asked about prediction markets, events, or probabilities:
 
-1. ALWAYS pull live Kalshi data first with get_kalshi_markets or get_kalshi_market_detail.
+1. ALWAYS use search_prediction_markets first — it searches both Kalshi AND Polymarket simultaneously and returns only priced liquid markets. Only fall back to get_kalshi_markets or get_polymarket_markets individually if you need more results from a specific source.
 2. Build your own probability estimate using Bayesian reasoning (calculate_bayesian_probability) — start with a historical base rate, then update with current evidence. Show your reasoning chain.
 3. Compare your estimate to the market's implied probability. The difference is your EDGE.
 4. If edge > 5%, calculate optimal bet size with calculate_kelly_criterion.
@@ -1020,6 +1160,41 @@ TOOLS = [
         "name": "get_prediction_market_categories",
         "description": "Get all available prediction market categories on Kalshi with market counts. Use to give user an overview of what's available to bet on.",
         "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "get_polymarket_markets",
+        "description": "Search live Polymarket prediction markets. No auth required — always works. Great fallback when Kalshi API is dry. Covers sports, politics, crypto, macro, world events.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search term e.g. NBA, Fed rate, Bitcoin, election"},
+                "limit": {"type": "integer", "description": "Number of markets to return (default 10)", "default": 10}
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "get_polymarket_market_detail",
+        "description": "Get full detail on a specific Polymarket market by its ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "market_id": {"type": "string", "description": "Polymarket market ID from search results"}
+            },
+            "required": ["market_id"]
+        }
+    },
+    {
+        "name": "search_prediction_markets",
+        "description": "Search BOTH Kalshi and Polymarket simultaneously. Best first tool for any prediction market query — returns combined priced markets from both sources.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search term e.g. Mavericks, Fed rate cut, Bitcoin 100k"},
+                "limit": {"type": "integer", "description": "Total results to return across both sources", "default": 8}
+            },
+            "required": ["query"]
+        }
     }
 ]
 
@@ -1535,6 +1710,9 @@ def run_tool(tool_name: str, tool_input: dict) -> str:
         "calculate_bayesian_probability":   lambda: calculate_bayesian_probability(**tool_input),
         "calculate_kelly_criterion":        lambda: calculate_kelly_criterion(**tool_input),
         "get_prediction_market_categories": lambda: get_prediction_market_categories(),
+        "get_polymarket_markets":            lambda: get_polymarket_markets(**tool_input),
+        "get_polymarket_market_detail":      lambda: get_polymarket_market_detail(**tool_input),
+        "search_prediction_markets":         lambda: search_prediction_markets(**tool_input),
     }
     handler = handlers.get(tool_name)
     result  = handler() if handler else {"error": f"Unknown tool: {tool_name}"}
