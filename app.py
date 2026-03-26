@@ -1,4 +1,3 @@
-from gevent import monkey; monkey.patch_all()
 import os
 import json
 import sqlite3
@@ -1953,7 +1952,6 @@ def api_trades():
 
 
 if __name__ == "__main__":
-    port  = int(os.environ.get("PORT", 5000))
-    debug = os.environ.get("FLASK_ENV") != "production"
-    print(f"🚀 FinSight is running at http://localhost:{port}")
-    app.run(debug=debug, host="0.0.0.0", port=port)
+    port = int(os.environ.get("PORT", 8080))
+    print(f"FinSight running at http://0.0.0.0:{port}")
+    app.run(debug=False, host="0.0.0.0", port=port, threaded=True)
