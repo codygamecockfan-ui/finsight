@@ -471,59 +471,73 @@ def get_prediction_market_categories() -> dict:
 POLYMARKET_BASE_URL = "https://gamma-api.polymarket.com"
 POLYMARKET_CLOB_URL = "https://clob.polymarket.com"
 
-def get_polymarket_markets(query: str = "", limit: int = 10) -> dict:
-    """Search active Polymarket markets. No auth required."""
+def get_polymarket_markets(query: str = "", limit: int = 10, sort_by_ending: bool = False) -> dict:
+    """Search active Polymarket markets. No auth required. Fetches larger pool then filters/sorts."""
     try:
-        params = {"limit": limit, "active": "true", "closed": "false"}
+        import json as _json
+        from datetime import timezone
+
+        # Fetch a larger pool so we can filter properly
+        params = {"limit": 100, "active": "true", "closed": "false"}
         if query:
             params["search"] = query
         r = requests.get(f"{POLYMARKET_BASE_URL}/markets",
                          params=params, timeout=10)
-        markets = r.json() if isinstance(r.json(), list) else r.json().get("markets", [])
-        results = []
-        for m in markets[:limit]:
-            outcomes = m.get("outcomes", "[]")
-            if isinstance(outcomes, str):
-                try:
-                    import json as _json
-                    outcomes = _json.loads(outcomes)
-                except:
-                    outcomes = []
+        raw = r.json()
+        markets = raw if isinstance(raw, list) else raw.get("markets", [])
+
+        def parse_prices(m):
             prices_str = m.get("outcomePrices", "[]")
             if isinstance(prices_str, str):
-                try:
-                    import json as _json
-                    prices = _json.loads(prices_str)
-                except:
-                    prices = []
+                try: prices = _json.loads(prices_str)
+                except: prices = []
             else:
-                prices = prices_str
-
-            yes_price = None
-            no_price  = None
-            if outcomes and prices and len(prices) >= 2:
+                prices = prices_str or []
+            yes_price, no_price = None, None
+            if prices and len(prices) >= 2:
                 try:
                     yes_price = round(float(prices[0]) * 100, 1)
                     no_price  = round(float(prices[1]) * 100, 1)
-                except:
-                    pass
+                except: pass
+            return yes_price, no_price
 
+        results = []
+        for m in markets:
+            yes_price, no_price = parse_prices(m)
+            # Skip unpriced/illiquid markets
+            if yes_price is None or yes_price == 0 or yes_price == 100:
+                continue
+            liq = float(m.get("liquidity") or 0)
+            if liq < 100:
+                continue
+            end_date = m.get("endDate", "")
             results.append({
                 "id":           m.get("id"),
                 "question":     m.get("question"),
                 "category":     m.get("category", ""),
-                "end_date":     m.get("endDate", ""),
+                "end_date":     end_date,
                 "yes_price":    yes_price,
                 "no_price":     no_price,
-                "implied_prob": round(yes_price / 100, 4) if yes_price else None,
+                "implied_prob": round(yes_price / 100, 4),
                 "volume":       m.get("volume"),
-                "liquidity":    m.get("liquidity"),
+                "liquidity":    liq,
                 "url":          f"https://polymarket.com/event/{m.get('slug', '')}",
             })
+
+        # Sort by soonest ending if requested or if query looks time-sensitive
+        time_keywords = ["tonight", "today", "live", "game", "nba", "nhl", "mlb", "nfl", "match"]
+        if sort_by_ending or any(k in query.lower() for k in time_keywords):
+            def end_sort(m):
+                ed = m.get("end_date", "")
+                try: return datetime.fromisoformat(ed.replace("Z", "+00:00"))
+                except: return datetime(2099, 1, 1, tzinfo=timezone.utc)
+            results.sort(key=end_sort)
+
+        results = results[:limit]
         return {
             "markets": results,
             "count":   len(results),
-            "source":  "Polymarket (no auth required)"
+            "source":  "Polymarket (liquid markets only, sorted by end date)"
         }
     except Exception as e:
         return {"error": str(e)}
