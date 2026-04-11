@@ -62,6 +62,7 @@ MAX_OPTIONS_PREMIUM     = float(os.getenv("MAX_OPTIONS_PREMIUM", "0.80"))
 KALSHI_API_KEY_ID       = os.getenv("KALSHI_API_KEY_ID", "")
 KALSHI_PRIVATE_KEY      = os.getenv("KALSHI_PRIVATE_KEY", "")
 KALSHI_BASE_URL         = "https://api.elections.kalshi.com/trade-api/v2"
+KALSHI_SPORTS_URL       = "https://api.kalshi.com/trade-api/v2"
 
 # ─────────────────────────────────────────────
 #  0DTE SESSION LOGIC
@@ -289,44 +290,67 @@ def kalshi_headers(method: str = "GET", path: str = "") -> dict:
 
 
 def get_kalshi_markets(query: str = "", limit: int = 10, status: str = "open") -> dict:
-    try:
-        params = {"limit": limit, "status": status}
-        if query:
-            params["search"] = query
-        path = "/trade-api/v2/markets"
-        r = requests.get(f"{KALSHI_BASE_URL}/markets",
-                         headers=kalshi_headers("GET", path), params=params, timeout=10)
-        data = r.json()
-        markets = data.get("markets", [])
-        results = []
-        for m in markets:
-            yes_price = m.get("yes_ask") or m.get("yes_bid") or 0
-            no_price  = m.get("no_ask")  or m.get("no_bid")  or 0
-            implied_prob = round(yes_price / 100, 4) if yes_price else None
-            results.append({
-                "ticker":        m.get("ticker"),
-                "title":         m.get("title"),
-                "category":      m.get("category"),
-                "status":        m.get("status"),
-                "close_time":    m.get("close_time"),
-                "yes_ask":       yes_price,
-                "no_ask":        no_price,
-                "implied_prob":  implied_prob,
-                "volume":        m.get("volume"),
-                "open_interest": m.get("open_interest"),
-                "rules":         m.get("rules_primary", "")[:200] if m.get("rules_primary") else ""
-            })
-        return {"markets": results, "count": len(results), "source": "Kalshi"}
-    except Exception as e:
-        return {"error": str(e)}
+    """Search both Kalshi endpoints — elections and sports/all markets."""
+    def fetch_from(base_url):
+        try:
+            params = {"limit": limit, "status": status}
+            if query:
+                params["search"] = query
+            path = "/trade-api/v2/markets"
+            r = requests.get(f"{base_url}/markets",
+                             headers=kalshi_headers("GET", path), params=params, timeout=10)
+            return r.json().get("markets", [])
+        except:
+            return []
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        f1 = ex.submit(fetch_from, KALSHI_BASE_URL)
+        f2 = ex.submit(fetch_from, KALSHI_SPORTS_URL)
+        elections_markets = f1.result()
+        sports_markets    = f2.result()
+
+    # Deduplicate by ticker
+    seen = set()
+    all_markets = []
+    for m in elections_markets + sports_markets:
+        t = m.get("ticker")
+        if t and t not in seen:
+            seen.add(t)
+            all_markets.append(m)
+
+    results = []
+    for m in all_markets[:limit * 2]:
+        yes_price = m.get("yes_ask") or m.get("yes_bid") or 0
+        no_price  = m.get("no_ask")  or m.get("no_bid")  or 0
+        implied_prob = round(yes_price / 100, 4) if yes_price else None
+        results.append({
+            "ticker":        m.get("ticker"),
+            "title":         m.get("title"),
+            "category":      m.get("category"),
+            "status":        m.get("status"),
+            "close_time":    m.get("close_time"),
+            "yes_ask":       yes_price,
+            "no_ask":        no_price,
+            "implied_prob":  implied_prob,
+            "volume":        m.get("volume"),
+            "open_interest": m.get("open_interest"),
+            "rules":         m.get("rules_primary", "")[:200] if m.get("rules_primary") else ""
+        })
+    return {"markets": results, "count": len(results), "source": "Kalshi (elections + sports)"}
 
 
 def get_kalshi_market_detail(ticker: str) -> dict:
     try:
         path = f"/trade-api/v2/markets/{ticker}"
+        # Try elections URL first, then sports URL
         r = requests.get(f"{KALSHI_BASE_URL}/markets/{ticker}",
                          headers=kalshi_headers("GET", path), timeout=10)
         m = r.json().get("market", {})
+        if not m.get("ticker"):
+            r = requests.get(f"{KALSHI_SPORTS_URL}/markets/{ticker}",
+                             headers=kalshi_headers("GET", path), timeout=10)
+            m = r.json().get("market", {})
         yes_price    = m.get("yes_ask") or m.get("yes_bid") or 0
         no_price     = m.get("no_ask")  or m.get("no_bid")  or 0
         implied_prob = round(yes_price / 100, 4) if yes_price else None
