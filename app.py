@@ -651,6 +651,164 @@ def get_kalshi_orders() -> dict:
     except Exception as e:
         return {"error": str(e)}
 
+
+def get_kalshi_events(query: str = "", category: str = "", limit: int = 10) -> dict:
+    """
+    Browse Kalshi events with nested markets using the /events endpoint.
+    More reliable than /markets for sports — returns structured event data
+    with all nested markets and live pricing.
+    """
+    try:
+        params = {"limit": limit, "status": "open", "with_nested_markets": "true"}
+        if query:
+            params["search"] = query
+        if category:
+            params["category"] = category
+
+        # Try both endpoints in parallel
+        def fetch_events(base_url):
+            try:
+                path = "/trade-api/v2/events"
+                hdrs = _kalshi_sign("GET", path)
+                r = requests.get(f"{base_url}/events",
+                                 headers=hdrs, params=params, timeout=10)
+                return r.json().get("events", [])
+            except:
+                return []
+
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            f1 = ex.submit(fetch_events, KALSHI_BASE_URL)
+            f2 = ex.submit(fetch_events, KALSHI_SPORTS_URL)
+            elections_events = f1.result()
+            sports_events    = f2.result()
+
+        # Deduplicate by event ticker
+        seen = set()
+        all_events = []
+        for e in elections_events + sports_events:
+            t = e.get("event_ticker")
+            if t and t not in seen:
+                seen.add(t)
+                all_events.append(e)
+
+        results = []
+        for e in all_events[:limit]:
+            markets = e.get("markets", [])
+            market_summaries = []
+            for m in markets:
+                yes_price = m.get("yes_ask") or m.get("yes_bid") or m.get("last_price") or 0
+                no_price  = m.get("no_ask")  or m.get("no_bid")  or 0
+                if yes_price == 0 and no_price > 0:
+                    yes_price = 100 - no_price
+                if no_price == 0 and yes_price > 0:
+                    no_price = 100 - yes_price
+                market_summaries.append({
+                    "ticker":       m.get("ticker"),
+                    "title":        m.get("title") or m.get("subtitle"),
+                    "yes_ask":      yes_price,
+                    "no_ask":       no_price,
+                    "implied_prob": round(yes_price / 100, 4) if yes_price else None,
+                    "volume":       m.get("volume"),
+                    "status":       m.get("status"),
+                })
+            results.append({
+                "event_ticker": e.get("event_ticker"),
+                "title":        e.get("title"),
+                "category":     e.get("category"),
+                "series":       e.get("series_ticker"),
+                "close_time":   e.get("close_time") or e.get("expected_expiration_time"),
+                "markets":      market_summaries,
+                "market_count": len(market_summaries),
+            })
+
+        return {
+            "events":  results,
+            "count":   len(results),
+            "source":  "Kalshi /events (elections + sports)"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_kalshi_sports_today() -> dict:
+    """
+    Get all live and upcoming sports markets on Kalshi for today.
+    Uses /events endpoint with sports category filter — more reliable
+    than keyword search for finding game markets.
+    """
+    from datetime import timezone
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    def fetch_sports(base_url, category):
+        try:
+            path = "/trade-api/v2/events"
+            hdrs = _kalshi_sign("GET", path)
+            params = {
+                "limit": 50,
+                "status": "open",
+                "with_nested_markets": "true",
+                "category": category
+            }
+            r = requests.get(f"{base_url}/events",
+                             headers=hdrs, params=params, timeout=10)
+            return r.json().get("events", [])
+        except:
+            return []
+
+    # Fetch NBA, MLB, NHL from both endpoints in parallel
+    sport_categories = ["Basketball", "Baseball", "Hockey", "Sports", "NBA", "MLB", "NHL"]
+    futures_map = {}
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        for cat in sport_categories:
+            futures_map[ex.submit(fetch_sports, KALSHI_SPORTS_URL, cat)] = cat
+            futures_map[ex.submit(fetch_sports, KALSHI_BASE_URL, cat)] = cat
+
+    seen = set()
+    all_events = []
+    for fut, cat in futures_map.items():
+        try:
+            for e in fut.result():
+                t = e.get("event_ticker")
+                if t and t not in seen:
+                    seen.add(t)
+                    all_events.append(e)
+        except:
+            pass
+
+    # Build clean market list
+    live_markets = []
+    for e in all_events:
+        for m in e.get("markets", []):
+            ticker = m.get("ticker", "")
+            yes_p  = m.get("yes_ask") or m.get("yes_bid") or m.get("last_price") or 0
+            no_p   = m.get("no_ask")  or m.get("no_bid")  or 0
+            if yes_p == 0 and no_p > 0:
+                yes_p = 100 - no_p
+            if no_p == 0 and yes_p > 0:
+                no_p = 100 - yes_p
+
+            live_markets.append({
+                "ticker":        ticker,
+                "event":         e.get("title"),
+                "market_title":  m.get("title") or m.get("subtitle", ""),
+                "category":      e.get("category"),
+                "yes_ask":       yes_p,
+                "no_ask":        no_p,
+                "implied_prob":  round(yes_p / 100, 4) if yes_p else None,
+                "volume":        m.get("volume"),
+                "close_time":    m.get("close_time") or e.get("close_time"),
+                "status":        m.get("status"),
+            })
+
+    # Sort by volume descending — most liquid first
+    live_markets.sort(key=lambda x: float(x.get("volume") or 0), reverse=True)
+
+    return {
+        "sports_markets": live_markets[:30],
+        "total_found":    len(live_markets),
+        "source":         "Kalshi /events sports (parallel fetch)"
+    }
+
 # ─────────────────────────────────────────────
 #  POLYMARKET ENGINE
 # ─────────────────────────────────────────────
@@ -1175,6 +1333,7 @@ You are also an expert prediction market analyst with the ability to place REAL 
 
 KALSHI TRADING RULES:
 - Max bet: $5.00 per market. Hard limit enforced in code.
+- When looking for sports markets (NBA, MLB, NHL etc): ALWAYS call get_kalshi_sports_today FIRST — it uses the /events endpoint which is far more reliable than keyword search for sports. Only fall back to get_kalshi_markets if get_kalshi_sports_today returns nothing.
 - Auto-execute: confidence >= 7 AND total cost <= $2.00
 - Require approval: confidence >= 7 AND total cost > $2.00
 - Never trade: confidence < 7
@@ -1555,6 +1714,24 @@ TOOLS = [
             },
             "required": ["order_id"]
         }
+    },
+    {
+        "name": "get_kalshi_events",
+        "description": "Browse Kalshi events with nested markets using the /events endpoint. More reliable than market search for finding sports, NBA, MLB, NHL game markets. Use this when keyword search returns junk.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query":    {"type": "string", "description": "Search term e.g. NBA, Warriors, Yankees"},
+                "category": {"type": "string", "description": "Category filter e.g. Basketball, Baseball, Hockey, Sports"},
+                "limit":    {"type": "integer", "description": "Number of events to return", "default": 10}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "get_kalshi_sports_today",
+        "description": "Get ALL live and upcoming sports markets on Kalshi today — NBA, MLB, NHL, all sports. Sorted by volume. Use this first when looking for any sports bet. Much more reliable than keyword search.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
     }
 ]
 
@@ -2083,6 +2260,8 @@ def run_tool(tool_name: str, tool_input: dict) -> str:
         "get_kalshi_orders":                 lambda: get_kalshi_orders(),
         "place_kalshi_order":                lambda: place_kalshi_order(**tool_input),
         "cancel_kalshi_order":               lambda: cancel_kalshi_order(**tool_input),
+        "get_kalshi_events":                 lambda: get_kalshi_events(**tool_input),
+        "get_kalshi_sports_today":           lambda: get_kalshi_sports_today(),
     }
     handler = handlers.get(tool_name)
     result  = handler() if handler else {"error": f"Unknown tool: {tool_name}"}
