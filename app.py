@@ -321,8 +321,16 @@ def get_kalshi_markets(query: str = "", limit: int = 10, status: str = "open") -
 
     results = []
     for m in all_markets[:limit * 2]:
-        yes_price = m.get("yes_ask") or m.get("yes_bid") or 0
-        no_price  = m.get("no_ask")  or m.get("no_bid")  or 0
+        # Try multiple field name variants — sports vs elections markets differ
+        yes_price = (m.get("yes_ask") or m.get("yes_bid") or
+                     m.get("last_price") or m.get("yes_price") or 0)
+        no_price  = (m.get("no_ask") or m.get("no_bid") or
+                     m.get("no_price") or 0)
+        # If still 0, derive from yes
+        if yes_price == 0 and no_price > 0:
+            yes_price = 100 - no_price
+        if no_price == 0 and yes_price > 0:
+            no_price = 100 - yes_price
         implied_prob = round(yes_price / 100, 4) if yes_price else None
         results.append({
             "ticker":        m.get("ticker"),
@@ -335,6 +343,7 @@ def get_kalshi_markets(query: str = "", limit: int = 10, status: str = "open") -
             "implied_prob":  implied_prob,
             "volume":        m.get("volume"),
             "open_interest": m.get("open_interest"),
+            "raw_fields":    {k: v for k, v in m.items() if "price" in k.lower() or "bid" in k.lower() or "ask" in k.lower()},
             "rules":         m.get("rules_primary", "")[:200] if m.get("rules_primary") else ""
         })
     return {"markets": results, "count": len(results), "source": "Kalshi (elections + sports)"}
