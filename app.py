@@ -506,10 +506,25 @@ def get_kalshi_balance() -> dict:
                 "KALSHI-ACCESS-SIGNATURE": sig, "Content-Type": "application/json"}
         r = requests.get(f"{KALSHI_BASE_URL}/portfolio/balance", headers=hdrs, timeout=10)
         d = r.json()
-        bal = d.get("balance", {})
+        # Handle both old and new Kalshi API field formats
+        bal = d.get("balance", d)  # some versions return balance at top level
+        # Try multiple possible field names
+        avail_cents = (
+            bal.get("available_balance_cents") or
+            bal.get("available") or
+            d.get("available_balance_cents") or
+            d.get("available") or 0
+        )
+        port_cents = (
+            bal.get("portfolio_value_cents") or
+            bal.get("portfolio_value") or
+            d.get("portfolio_value_cents") or
+            d.get("portfolio_value") or 0
+        )
         return {
-            "available_balance": f"${bal.get('available_balance_cents', 0) / 100:.2f}",
-            "portfolio_value":   f"${bal.get('portfolio_value_cents', 0) / 100:.2f}" if bal.get("portfolio_value_cents") else "N/A",
+            "available_balance": f"${int(avail_cents) / 100:.2f}",
+            "portfolio_value":   f"${int(port_cents) / 100:.2f}" if port_cents else "N/A",
+            "raw_response":      d,  # include raw so we can debug if still wrong
             "source": "Kalshi"
         }
     except Exception as e:
