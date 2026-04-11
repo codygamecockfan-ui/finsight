@@ -254,38 +254,38 @@ def calculate_expected_move(ticker: str, option_type: str = "call") -> dict:
 # ─────────────────────────────────────────────
 import math
 
+def _kalshi_sign(method: str, path: str) -> dict:
+    """Generate Kalshi RSA-PSS signed headers. Used by all authenticated Kalshi calls."""
+    import base64, time as _time
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding as _padding
+    from cryptography.hazmat.backends import default_backend
+
+    ts       = str(int(_time.time() * 1000))
+    # Strip query params before signing per Kalshi docs
+    sign_path = path.split("?")[0]
+    message  = f"{ts}{method.upper()}{sign_path}".encode("utf-8")
+    key_data = KALSHI_PRIVATE_KEY.replace("\\n", "\n")
+
+    pk = serialization.load_pem_private_key(
+        key_data.encode(), password=None, backend=default_backend()
+    )
+    # Kalshi requires RSA-PSS with SHA256 (NOT PKCS1v15)
+    sig = pk.sign(
+        message,
+        _padding.PSS(mgf=_padding.MGF1(hashes.SHA256()), salt_length=_padding.PSS.DIGEST_LENGTH),
+        hashes.SHA256()
+    )
+    return {
+        "KALSHI-ACCESS-KEY":       KALSHI_API_KEY_ID,
+        "KALSHI-ACCESS-TIMESTAMP": ts,
+        "KALSHI-ACCESS-SIGNATURE": base64.b64encode(sig).decode("utf-8"),
+        "Content-Type":            "application/json",
+        "Accept":                  "application/json"
+    }
+
 def kalshi_headers(method: str = "GET", path: str = "") -> dict:
-    import base64
-    import time as _time
-    try:
-        from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import padding
-        from cryptography.hazmat.backends import default_backend
-
-        ts         = str(int(_time.time() * 1000))
-        msg_string = ts + method.upper() + path
-        key_data   = KALSHI_PRIVATE_KEY.replace("\\n", "\n")
-
-        private_key = serialization.load_pem_private_key(
-            key_data.encode(), password=None, backend=default_backend()
-        )
-        signature = private_key.sign(msg_string.encode("utf-8"), padding.PKCS1v15(), hashes.SHA256())
-        sig_b64   = base64.b64encode(signature).decode("utf-8")
-
-        return {
-            "KALSHI-ACCESS-KEY":       KALSHI_API_KEY_ID,
-            "KALSHI-ACCESS-TIMESTAMP": ts,
-            "KALSHI-ACCESS-SIGNATURE": sig_b64,
-            "Content-Type":            "application/json",
-            "Accept":                  "application/json"
-        }
-    except Exception as e:
-        # Fallback to basic auth if cryptography not available
-        return {
-            "Authorization": f"Bearer {KALSHI_API_KEY_ID}",
-            "Content-Type":  "application/json",
-            "Accept":        "application/json"
-        }
+    return _kalshi_sign(method, path)
 
 
 def get_kalshi_markets(query: str = "", limit: int = 10, status: str = "open") -> dict:
@@ -491,40 +491,14 @@ def get_prediction_market_categories() -> dict:
 def get_kalshi_balance() -> dict:
     """Get Kalshi account balance and buying power."""
     try:
-        import base64, time as _time
-        from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import padding
-        from cryptography.hazmat.backends import default_backend
-
         path = "/trade-api/v2/portfolio/balance"
-        ts   = str(int(_time.time() * 1000))
-        msg  = ts + "GET" + path
-        key_data = KALSHI_PRIVATE_KEY.replace("\\n", "\n")
-        pk   = serialization.load_pem_private_key(key_data.encode(), password=None, backend=default_backend())
-        sig  = base64.b64encode(pk.sign(msg.encode(), padding.PKCS1v15(), hashes.SHA256())).decode()
-        hdrs = {"KALSHI-ACCESS-KEY": KALSHI_API_KEY_ID, "KALSHI-ACCESS-TIMESTAMP": ts,
-                "KALSHI-ACCESS-SIGNATURE": sig, "Content-Type": "application/json"}
-        r = requests.get(f"{KALSHI_BASE_URL}/portfolio/balance", headers=hdrs, timeout=10)
-        d = r.json()
-        # Handle both old and new Kalshi API field formats
-        bal = d.get("balance", d)  # some versions return balance at top level
-        # Try multiple possible field names
-        avail_cents = (
-            bal.get("available_balance_cents") or
-            bal.get("available") or
-            d.get("available_balance_cents") or
-            d.get("available") or 0
-        )
-        port_cents = (
-            bal.get("portfolio_value_cents") or
-            bal.get("portfolio_value") or
-            d.get("portfolio_value_cents") or
-            d.get("portfolio_value") or 0
-        )
+        hdrs = _kalshi_sign("GET", path)
+        r    = requests.get(f"{KALSHI_BASE_URL}/portfolio/balance", headers=hdrs, timeout=10)
+        d    = r.json()
+        # Kalshi returns balance as integer cents at top level: {"balance": 1000}
+        bal_cents = d.get("balance", 0)
         return {
-            "available_balance": f"${int(avail_cents) / 100:.2f}",
-            "portfolio_value":   f"${int(port_cents) / 100:.2f}" if port_cents else "N/A",
-            "raw_response":      d,  # include raw so we can debug if still wrong
+            "available_balance": f"${int(bal_cents) / 100:.2f}",
             "source": "Kalshi"
         }
     except Exception as e:
@@ -534,20 +508,9 @@ def get_kalshi_balance() -> dict:
 def get_kalshi_positions() -> dict:
     """Get all open Kalshi positions."""
     try:
-        import base64, time as _time
-        from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import padding
-        from cryptography.hazmat.backends import default_backend
-
         path = "/trade-api/v2/portfolio/positions"
-        ts   = str(int(_time.time() * 1000))
-        msg  = ts + "GET" + path
-        key_data = KALSHI_PRIVATE_KEY.replace("\\n", "\n")
-        pk   = serialization.load_pem_private_key(key_data.encode(), password=None, backend=default_backend())
-        sig  = base64.b64encode(pk.sign(msg.encode(), padding.PKCS1v15(), hashes.SHA256())).decode()
-        hdrs = {"KALSHI-ACCESS-KEY": KALSHI_API_KEY_ID, "KALSHI-ACCESS-TIMESTAMP": ts,
-                "KALSHI-ACCESS-SIGNATURE": sig, "Content-Type": "application/json"}
-        r = requests.get(f"{KALSHI_BASE_URL}/portfolio/positions", headers=hdrs, timeout=10)
+        hdrs = _kalshi_sign("GET", path)
+        r    = requests.get(f"{KALSHI_BASE_URL}/portfolio/positions", headers=hdrs, timeout=10)
         d = r.json()
         positions = d.get("market_positions", [])
         results = []
@@ -575,11 +538,7 @@ def place_kalshi_order(ticker: str, side: str, count: int, yes_price_cents: int,
     yes_price_cents: price in cents (1-99), e.g. 55 = $0.55
     action: buy or sell
     """
-    import uuid, base64, time as _time
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import padding
-    from cryptography.hazmat.backends import default_backend
-
+    import uuid
     try:
         # Safety checks
         cost_dollars = (count * yes_price_cents) / 100
@@ -591,13 +550,7 @@ def place_kalshi_order(ticker: str, side: str, count: int, yes_price_cents: int,
             return {"error": "count must be at least 1"}
 
         path = "/trade-api/v2/portfolio/orders"
-        ts   = str(int(_time.time() * 1000))
-        msg  = ts + "POST" + path
-        key_data = KALSHI_PRIVATE_KEY.replace("\\n", "\n")
-        pk   = serialization.load_pem_private_key(key_data.encode(), password=None, backend=default_backend())
-        sig  = base64.b64encode(pk.sign(msg.encode(), padding.PKCS1v15(), hashes.SHA256())).decode()
-        hdrs = {"KALSHI-ACCESS-KEY": KALSHI_API_KEY_ID, "KALSHI-ACCESS-TIMESTAMP": ts,
-                "KALSHI-ACCESS-SIGNATURE": sig, "Content-Type": "application/json"}
+        hdrs = _kalshi_sign("POST", path)
 
         order_data = {
             "ticker":           ticker.upper(),
@@ -635,20 +588,9 @@ def place_kalshi_order(ticker: str, side: str, count: int, yes_price_cents: int,
 
 def cancel_kalshi_order(order_id: str) -> dict:
     """Cancel an open Kalshi order by order ID."""
-    import base64, time as _time
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import padding
-    from cryptography.hazmat.backends import default_backend
-
     try:
         path = f"/trade-api/v2/portfolio/orders/{order_id}"
-        ts   = str(int(_time.time() * 1000))
-        msg  = ts + "DELETE" + path
-        key_data = KALSHI_PRIVATE_KEY.replace("\\n", "\n")
-        pk   = serialization.load_pem_private_key(key_data.encode(), password=None, backend=default_backend())
-        sig  = base64.b64encode(pk.sign(msg.encode(), padding.PKCS1v15(), hashes.SHA256())).decode()
-        hdrs = {"KALSHI-ACCESS-KEY": KALSHI_API_KEY_ID, "KALSHI-ACCESS-TIMESTAMP": ts,
-                "KALSHI-ACCESS-SIGNATURE": sig, "Content-Type": "application/json"}
+        hdrs = _kalshi_sign("DELETE", path)
         r = requests.delete(f"{KALSHI_BASE_URL}/portfolio/orders/{order_id}",
                             headers=hdrs, timeout=10)
         if r.status_code in (200, 204):
@@ -660,20 +602,9 @@ def cancel_kalshi_order(order_id: str) -> dict:
 
 def get_kalshi_orders() -> dict:
     """Get open Kalshi orders."""
-    import base64, time as _time
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import padding
-    from cryptography.hazmat.backends import default_backend
-
     try:
         path = "/trade-api/v2/portfolio/orders"
-        ts   = str(int(_time.time() * 1000))
-        msg  = ts + "GET" + path
-        key_data = KALSHI_PRIVATE_KEY.replace("\\n", "\n")
-        pk   = serialization.load_pem_private_key(key_data.encode(), password=None, backend=default_backend())
-        sig  = base64.b64encode(pk.sign(msg.encode(), padding.PKCS1v15(), hashes.SHA256())).decode()
-        hdrs = {"KALSHI-ACCESS-KEY": KALSHI_API_KEY_ID, "KALSHI-ACCESS-TIMESTAMP": ts,
-                "KALSHI-ACCESS-SIGNATURE": sig, "Content-Type": "application/json"}
+        hdrs = _kalshi_sign("GET", path)
         r = requests.get(f"{KALSHI_BASE_URL}/portfolio/orders",
                          headers=hdrs, params={"status": "resting"}, timeout=10)
         orders = r.json().get("orders", [])
