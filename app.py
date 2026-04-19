@@ -63,6 +63,8 @@ KALSHI_API_KEY_ID       = os.getenv("KALSHI_API_KEY_ID", "")
 KALSHI_PRIVATE_KEY      = os.getenv("KALSHI_PRIVATE_KEY", "")
 KALSHI_BASE_URL         = "https://api.elections.kalshi.com/trade-api/v2"
 # Note: api.elections.kalshi.com serves ALL markets including sports — not just elections
+BALLDONTLIE_API_KEY     = os.getenv("BALLDONTLIE_API_KEY", "")
+BALLDONTLIE_BASE_URL    = "https://api.balldontlie.io"
 
 # ─────────────────────────────────────────────
 #  0DTE SESSION LOGIC
@@ -994,6 +996,230 @@ def get_0dte_context(ticker: str, option_type: str = "call") -> dict:
         "source":           "Parallel fetch: Alpaca + Polygon + Tradier"
     }
 
+
+# ─────────────────────────────────────────────
+#  SPORTS DATA ENGINE (BallDontLie)
+# ─────────────────────────────────────────────
+def _bdl_headers() -> dict:
+    return {"Authorization": BALLDONTLIE_API_KEY}
+
+
+def get_live_nba_games() -> dict:
+    """Get all NBA games today with live scores, quarter, time remaining."""
+    try:
+        today = datetime.now().strftime("%Y-%m-%d")
+        r = requests.get(
+            f"{BALLDONTLIE_BASE_URL}/nba/v1/games",
+            headers=_bdl_headers(),
+            params={"dates[]": today, "per_page": 30},
+            timeout=10
+        )
+        games = r.json().get("data", [])
+        results = []
+        for g in games:
+            home = g.get("home_team", {})
+            away = g.get("visitor_team", {})
+            status = g.get("status", "")
+            period = g.get("period", 0)
+            time_remaining = g.get("time", "")
+            results.append({
+                "game_id":        g.get("id"),
+                "status":         status,
+                "period":         f"Q{period}" if period and period <= 4 else ("OT" if period and period > 4 else "Pre"),
+                "time_remaining": time_remaining,
+                "home_team":      f"{home.get('city')} {home.get('name')}",
+                "home_abbr":      home.get("abbreviation"),
+                "home_score":     g.get("home_team_score", 0),
+                "visitor_team":   f"{away.get('city')} {away.get('name')}",
+                "visitor_abbr":   away.get("abbreviation"),
+                "visitor_score":  g.get("visitor_team_score", 0),
+                "postseason":     g.get("postseason", False),
+                "home_q1": g.get("home_q1"), "home_q2": g.get("home_q2"),
+                "home_q3": g.get("home_q3"), "home_q4": g.get("home_q4"),
+                "visitor_q1": g.get("visitor_q1"), "visitor_q2": g.get("visitor_q2"),
+                "visitor_q3": g.get("visitor_q3"), "visitor_q4": g.get("visitor_q4"),
+            })
+        live   = [g for g in results if g["status"] not in ("Final", "") and ":" in str(g["time_remaining"])]
+        final  = [g for g in results if g["status"] == "Final"]
+        upcoming = [g for g in results if g["status"] not in ("Final",) and ":" not in str(g["time_remaining"])]
+        return {
+            "date":     today,
+            "live":     live,
+            "final":    final,
+            "upcoming": upcoming,
+            "total":    len(results),
+            "source":   "BallDontLie (real-time)"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_nba_injuries() -> dict:
+    """Get current NBA injury report."""
+    try:
+        r = requests.get(
+            f"{BALLDONTLIE_BASE_URL}/nba/v1/player_injuries",
+            headers=_bdl_headers(),
+            params={"per_page": 50},
+            timeout=10
+        )
+        injuries = r.json().get("data", [])
+        results = []
+        for inj in injuries:
+            player = inj.get("player", {})
+            team   = inj.get("team", {})
+            results.append({
+                "player":   f"{player.get('first_name')} {player.get('last_name')}",
+                "team":     f"{team.get('city')} {team.get('name')}",
+                "team_abbr": team.get("abbreviation"),
+                "status":   inj.get("status"),
+                "return_date": inj.get("return_date", "Unknown"),
+                "description": inj.get("description", ""),
+            })
+        return {
+            "injuries": results,
+            "count":    len(results),
+            "source":   "BallDontLie (official NBA reports)"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_nba_standings() -> dict:
+    """Get current NBA standings for both conferences."""
+    try:
+        season = datetime.now().year if datetime.now().month >= 10 else datetime.now().year - 1
+        r = requests.get(
+            f"{BALLDONTLIE_BASE_URL}/nba/v1/standings",
+            headers=_bdl_headers(),
+            params={"season": season},
+            timeout=10
+        )
+        teams = r.json().get("data", [])
+        east, west = [], []
+        for t in teams:
+            team = t.get("team", {})
+            entry = {
+                "team":       team.get("full_name"),
+                "abbr":       team.get("abbreviation"),
+                "wins":       t.get("wins"),
+                "losses":     t.get("losses"),
+                "win_pct":    t.get("win_pct"),
+                "conf_rank":  t.get("conference_rank"),
+                "home":       t.get("home_record"),
+                "away":       t.get("road_record"),
+                "last_10":    t.get("last_ten_games"),
+                "streak":     t.get("streak"),
+                "conference": team.get("conference"),
+            }
+            if team.get("conference") == "East":
+                east.append(entry)
+            else:
+                west.append(entry)
+        east.sort(key=lambda x: x.get("conf_rank") or 99)
+        west.sort(key=lambda x: x.get("conf_rank") or 99)
+        return {
+            "season":  season,
+            "eastern": east,
+            "western": west,
+            "source":  "BallDontLie"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_nba_team_context(team_name: str) -> dict:
+    """
+    Get full context on an NBA team for betting analysis:
+    recent games, current standing, key injuries, home/away record.
+    Runs standings + injuries in parallel.
+    """
+    team_name = team_name.strip()
+    try:
+        def fetch_standings():
+            return get_nba_standings()
+
+        def fetch_injuries():
+            return get_nba_injuries()
+
+        def fetch_recent_games():
+            try:
+                # Get last 10 games for the season
+                season = datetime.now().year if datetime.now().month >= 10 else datetime.now().year - 1
+                r = requests.get(
+                    f"{BALLDONTLIE_BASE_URL}/nba/v1/games",
+                    headers=_bdl_headers(),
+                    params={"seasons[]": season, "per_page": 100},
+                    timeout=10
+                )
+                all_games = r.json().get("data", [])
+                team_games = []
+                for g in all_games:
+                    home = g.get("home_team", {})
+                    away = g.get("visitor_team", {})
+                    hn = f"{home.get('city', '')} {home.get('name', '')}".lower()
+                    vn = f"{away.get('city', '')} {away.get('name', '')}".lower()
+                    if team_name.lower() in hn or team_name.lower() in vn:
+                        team_games.append(g)
+                # Sort by date and get last 10 final games
+                final_games = [g for g in team_games if g.get("status") == "Final"]
+                final_games.sort(key=lambda g: g.get("date", ""), reverse=True)
+                recent = []
+                for g in final_games[:10]:
+                    home = g.get("home_team", {})
+                    away = g.get("visitor_team", {})
+                    hs = g.get("home_team_score", 0)
+                    vs = g.get("visitor_team_score", 0)
+                    hn = f"{home.get('city')} {home.get('name')}"
+                    vn = f"{away.get('city')} {away.get('name')}"
+                    is_home = team_name.lower() in hn.lower()
+                    team_score = hs if is_home else vs
+                    opp_score  = vs if is_home else hs
+                    won = team_score > opp_score
+                    recent.append({
+                        "date":      g.get("date"),
+                        "opponent":  vn if is_home else hn,
+                        "result":    "W" if won else "L",
+                        "score":     f"{team_score}-{opp_score}",
+                        "home_away": "Home" if is_home else "Away"
+                    })
+                return recent
+            except:
+                return []
+
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            f_stand  = ex.submit(fetch_standings)
+            f_inj    = ex.submit(fetch_injuries)
+            f_recent = ex.submit(fetch_recent_games)
+            standings_data = f_stand.result()
+            injuries_data  = f_inj.result()
+            recent_games   = f_recent.result()
+
+        # Find team in standings
+        team_standing = None
+        all_teams = standings_data.get("eastern", []) + standings_data.get("western", [])
+        for t in all_teams:
+            if team_name.lower() in (t.get("team") or "").lower():
+                team_standing = t
+                break
+
+        # Filter injuries for this team
+        team_injuries = [
+            i for i in injuries_data.get("injuries", [])
+            if team_name.lower() in (i.get("team") or "").lower()
+        ]
+
+        return {
+            "team":          team_name,
+            "standing":      team_standing,
+            "recent_games":  recent_games,
+            "injuries":      team_injuries,
+            "injury_count":  len(team_injuries),
+            "source":        "BallDontLie (parallel fetch)"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 # ─────────────────────────────────────────────
 #  DATABASE SETUP
 # ─────────────────────────────────────────────
@@ -1291,7 +1517,10 @@ You are also an expert prediction market analyst with the ability to place REAL 
 
 KALSHI TRADING RULES:
 - Max bet: $5.00 per market. Hard limit enforced in code.
-- When looking for sports markets (NBA, MLB, NHL etc): ALWAYS call get_kalshi_sports_today FIRST — it uses the /events endpoint which is far more reliable than keyword search for sports. Only fall back to get_kalshi_markets if get_kalshi_sports_today returns nothing.
+- When looking for sports markets (NBA, MLB, NHL etc): ALWAYS call get_kalshi_sports_today FIRST for market prices.
+- For ANY NBA prediction market bet, ALWAYS call get_live_nba_games + get_nba_team_context (for BOTH teams) BEFORE analyzing. Never make an NBA bet recommendation without knowing: current score/quarter, recent form (last 10 games), injuries, and standings. This is non-negotiable.
+- Use get_nba_injuries to check key player availability before any NBA analysis.
+- Factor live game state into probability: a team up 20 in Q4 is not 55% likely to win, they're 99% likely.
 - Auto-execute: confidence >= 7 AND total cost <= $2.00
 - Require approval: confidence >= 7 AND total cost > $2.00
 - Never trade: confidence < 7
@@ -1690,6 +1919,32 @@ TOOLS = [
         "name": "get_kalshi_sports_today",
         "description": "Get ALL live and upcoming sports markets on Kalshi today — NBA, MLB, NHL, all sports. Sorted by volume. Use this first when looking for any sports bet. Much more reliable than keyword search.",
         "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "get_live_nba_games",
+        "description": "Get all NBA games today with live scores, current quarter, time remaining, and quarter-by-quarter breakdown. Use this to see what games are live RIGHT NOW before making any NBA prediction market bet.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "get_nba_injuries",
+        "description": "Get the current NBA injury report — all players listed as Out, Questionable, or Doubtful. Critical for any NBA bet analysis.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "get_nba_standings",
+        "description": "Get current NBA standings for both Eastern and Western conferences including win%, home/away record, last 10 games, and current streak.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "get_nba_team_context",
+        "description": "Get full betting context for an NBA team — current standing, last 10 games with results, and active injuries. Run this on BOTH teams before any NBA prediction market analysis.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "team_name": {"type": "string", "description": "Team name e.g. Celtics, Lakers, Warriors, Knicks"}
+            },
+            "required": ["team_name"]
+        }
     }
 ]
 
@@ -2220,6 +2475,10 @@ def run_tool(tool_name: str, tool_input: dict) -> str:
         "cancel_kalshi_order":               lambda: cancel_kalshi_order(**tool_input),
         "get_kalshi_events":                 lambda: get_kalshi_events(**tool_input),
         "get_kalshi_sports_today":           lambda: get_kalshi_sports_today(),
+        "get_live_nba_games":                lambda: get_live_nba_games(),
+        "get_nba_injuries":                  lambda: get_nba_injuries(),
+        "get_nba_standings":                 lambda: get_nba_standings(),
+        "get_nba_team_context":              lambda: get_nba_team_context(**tool_input),
     }
     handler = handlers.get(tool_name)
     result  = handler() if handler else {"error": f"Unknown tool: {tool_name}"}
