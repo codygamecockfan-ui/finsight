@@ -1,18 +1,28 @@
 """
 Claude agent loop — streaming and non-streaming variants.
 Both run tool calls in parallel via ThreadPoolExecutor.
+
+v2: added critique pass. The agent drafts with tools, then a second pass
+runs a self-critique using CRITIQUE_PROMPT before the final response streams.
+The critique pass reuses the same model (no extra API cost beyond the one call)
+and skips if the draft is trivially short (e.g. a greeting).
 """
 import json
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from anthropic import Anthropic
 
-from agent.prompts import SYSTEM_PROMPT
+from agent.prompts import SYSTEM_PROMPT, CRITIQUE_PROMPT
 from agent.tools import TOOLS
 from agent.tool_handlers import run_tool
 
 client = Anthropic()
 MODEL  = "claude-sonnet-4-6"
+
+# Skip critique pass for trivial responses to save latency
+CRITIQUE_MIN_CHARS = 200
+# Only critique responses that look like trade recommendations
+CRITIQUE_TRIGGERS  = ("PLAY 1", "PLAY 2", "CONF ", "Counter-case", "0DTE", "Kalshi", "Polymarket")
 
 
 def trim_history(history: list, max_pairs: int = 6) -> list:
@@ -45,6 +55,36 @@ def _run_tools_parallel(tool_blocks) -> list:
     return tool_results
 
 
+def _should_critique(draft: str) -> bool:
+    """Only run critique pass if the response looks substantive or trade-oriented."""
+    if len(draft) < CRITIQUE_MIN_CHARS:
+        return False
+    return any(trigger in draft for trigger in CRITIQUE_TRIGGERS)
+
+
+def _critique_pass(draft: str, system_base: str) -> str:
+    """
+    Takes the draft response and returns a refined version after self-critique.
+    Returns the original draft unchanged if the API call fails.
+    """
+    combined_system = system_base + "\n\n---\n\n" + CRITIQUE_PROMPT
+    try:
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=2048,
+            system=combined_system,
+            messages=[{
+                "role": "user",
+                "content": f"DRAFT RESPONSE TO CRITIQUE:\n\n{draft}"
+            }]
+        )
+        refined = "\n".join(b.text for b in response.content if hasattr(b, "text"))
+        return refined.strip() or draft
+    except Exception as e:
+        print(f"[FinSight] Critique pass failed, using draft: {e}")
+        return draft
+
+
 def run_agent(conversation_history: list) -> str:
     """Non-streaming agent — used internally."""
     messages = trim_history(conversation_history.copy())
@@ -56,7 +96,10 @@ def run_agent(conversation_history: list) -> str:
         messages.append({"role": "assistant", "content": response.content})
 
         if response.stop_reason == "end_turn":
-            return "\n".join(b.text for b in response.content if hasattr(b, "text"))
+            draft = "\n".join(b.text for b in response.content if hasattr(b, "text"))
+            if _should_critique(draft):
+                return _critique_pass(draft, system)
+            return draft
 
         if response.stop_reason == "tool_use":
             tool_blocks  = [b for b in response.content if b.type == "tool_use"]
@@ -68,7 +111,7 @@ def run_agent(conversation_history: list) -> str:
 
 def run_agent_streaming(conversation_history: list):
     """
-    Streaming agent — runs tool calls in parallel then streams the final response.
+    Streaming agent — runs tool calls in parallel, optionally critiques, then streams final.
     Yields SSE chunks: data: {"text": "..."} or data: [DONE]
     """
     messages = trim_history(conversation_history.copy())
@@ -80,7 +123,17 @@ def run_agent_streaming(conversation_history: list):
         messages.append({"role": "assistant", "content": response.content})
 
         if response.stop_reason == "end_turn":
-            final_text = "\n".join(b.text for b in response.content if hasattr(b, "text"))
+            draft = "\n".join(b.text for b in response.content if hasattr(b, "text"))
+
+            # Optional critique pass for trade-oriented responses
+            if _should_critique(draft):
+                # Signal to UI that critique is running
+                yield f"data: {json.dumps({'status': 'critiquing'})}\n\n"
+                final_text = _critique_pass(draft, system)
+            else:
+                final_text = draft
+
+            # Stream the final version word-by-word
             words = final_text.split(" ")
             chunk = ""
             for i, word in enumerate(words):
