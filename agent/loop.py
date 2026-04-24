@@ -2,10 +2,9 @@
 Claude agent loop — streaming and non-streaming variants.
 Both run tool calls in parallel via ThreadPoolExecutor.
 
-v2: added critique pass. The agent drafts with tools, then a second pass
-runs a self-critique using CRITIQUE_PROMPT before the final response streams.
-The critique pass reuses the same model (no extra API cost beyond the one call)
-and skips if the draft is trivially short (e.g. a greeting).
+v2.1: critique pass only fires when tools were actually called in this turn.
+Prevents the model from "critiquing" a plan-only response and asking the user
+for the tool results (the model doing the tool calling's job for it).
 """
 import json
 from datetime import datetime
@@ -19,10 +18,8 @@ from agent.tool_handlers import run_tool
 client = Anthropic()
 MODEL  = "claude-sonnet-4-6"
 
-# Skip critique pass for trivial responses to save latency
-CRITIQUE_MIN_CHARS = 200
-# Only critique responses that look like trade recommendations
-CRITIQUE_TRIGGERS  = ("PLAY 1", "PLAY 2", "CONF ", "Counter-case", "0DTE", "Kalshi", "Polymarket")
+CRITIQUE_MIN_CHARS = 300
+CRITIQUE_TRIGGERS  = ("PLAY 1", "PLAY 2", "━━━", "Counter-case", "Edge check")
 
 
 def trim_history(history: list, max_pairs: int = 6) -> list:
@@ -55,28 +52,29 @@ def _run_tools_parallel(tool_blocks) -> list:
     return tool_results
 
 
-def _should_critique(draft: str) -> bool:
-    """Only run critique pass if the response looks substantive or trade-oriented."""
+def _should_critique(draft: str, tools_were_called: bool) -> bool:
+    """
+    Only critique when:
+    1. Tools were actually called in this turn (we have real data to work with)
+    2. The draft is substantive
+    3. The draft contains the 3-play structure (so critique has something to assess)
+    """
+    if not tools_were_called:
+        return False
     if len(draft) < CRITIQUE_MIN_CHARS:
         return False
     return any(trigger in draft for trigger in CRITIQUE_TRIGGERS)
 
 
 def _critique_pass(draft: str, system_base: str) -> str:
-    """
-    Takes the draft response and returns a refined version after self-critique.
-    Returns the original draft unchanged if the API call fails.
-    """
+    """Take the draft and return a refined version. Fall back to draft on error."""
     combined_system = system_base + "\n\n---\n\n" + CRITIQUE_PROMPT
     try:
         response = client.messages.create(
             model=MODEL,
             max_tokens=2048,
             system=combined_system,
-            messages=[{
-                "role": "user",
-                "content": f"DRAFT RESPONSE TO CRITIQUE:\n\n{draft}"
-            }]
+            messages=[{"role": "user", "content": f"DRAFT RESPONSE TO CRITIQUE:\n\n{draft}"}]
         )
         refined = "\n".join(b.text for b in response.content if hasattr(b, "text"))
         return refined.strip() or draft
@@ -89,6 +87,7 @@ def run_agent(conversation_history: list) -> str:
     """Non-streaming agent — used internally."""
     messages = trim_history(conversation_history.copy())
     system   = _system_with_time()
+    tools_were_called = False
 
     while True:
         response = client.messages.create(
@@ -97,11 +96,12 @@ def run_agent(conversation_history: list) -> str:
 
         if response.stop_reason == "end_turn":
             draft = "\n".join(b.text for b in response.content if hasattr(b, "text"))
-            if _should_critique(draft):
+            if _should_critique(draft, tools_were_called):
                 return _critique_pass(draft, system)
             return draft
 
         if response.stop_reason == "tool_use":
+            tools_were_called = True
             tool_blocks  = [b for b in response.content if b.type == "tool_use"]
             tool_results = _run_tools_parallel(tool_blocks)
             messages.append({"role": "user", "content": tool_results})
@@ -111,11 +111,12 @@ def run_agent(conversation_history: list) -> str:
 
 def run_agent_streaming(conversation_history: list):
     """
-    Streaming agent — runs tool calls in parallel, optionally critiques, then streams final.
+    Streaming agent — runs tools in parallel, optionally critiques, then streams final.
     Yields SSE chunks: data: {"text": "..."} or data: [DONE]
     """
     messages = trim_history(conversation_history.copy())
     system   = _system_with_time()
+    tools_were_called = False
 
     while True:
         response = client.messages.create(
@@ -125,15 +126,12 @@ def run_agent_streaming(conversation_history: list):
         if response.stop_reason == "end_turn":
             draft = "\n".join(b.text for b in response.content if hasattr(b, "text"))
 
-            # Optional critique pass for trade-oriented responses
-            if _should_critique(draft):
-                # Signal to UI that critique is running
+            if _should_critique(draft, tools_were_called):
                 yield f"data: {json.dumps({'status': 'critiquing'})}\n\n"
                 final_text = _critique_pass(draft, system)
             else:
                 final_text = draft
 
-            # Stream the final version word-by-word
             words = final_text.split(" ")
             chunk = ""
             for i, word in enumerate(words):
@@ -147,6 +145,7 @@ def run_agent_streaming(conversation_history: list):
             return
 
         if response.stop_reason == "tool_use":
+            tools_were_called = True
             tool_blocks  = [b for b in response.content if b.type == "tool_use"]
             tool_results = _run_tools_parallel(tool_blocks)
             messages.append({"role": "user", "content": tool_results})
