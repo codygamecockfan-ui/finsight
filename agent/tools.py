@@ -169,6 +169,18 @@ TOOLS = [
         }
     },
     {
+        "name": "get_0dte_context",
+        "description": "FASTEST way to get all 0DTE pre-trade context in ONE call. Fetches session quality, VWAP, expected move, and current price all in parallel. Use INSTEAD of calling get_trading_session + get_vwap + get_expected_move separately.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker":      {"type": "string"},
+                "option_type": {"type": "string", "enum": ["call", "put"], "default": "call"}
+            },
+            "required": ["ticker"]
+        }
+    },
+    {
         "name": "get_kalshi_markets",
         "description": "Search live Kalshi prediction markets by keyword.",
         "input_schema": {
@@ -279,15 +291,88 @@ TOOLS = [
         }
     },
     {
-        "name": "get_0dte_context",
-        "description": "FASTEST way to get all 0DTE pre-trade context in ONE call. Fetches session quality, VWAP, expected move, and current price all in parallel. Use INSTEAD of calling get_trading_session + get_vwap + get_expected_move separately.",
+        "name": "get_kalshi_balance",
+        "description": "Get Kalshi account balance and buying power.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "get_kalshi_positions",
+        "description": "Get all open Kalshi prediction market positions.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "get_kalshi_orders",
+        "description": "Get all open/resting Kalshi orders.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "place_kalshi_order",
+        "description": "Place a REAL Kalshi prediction market order. Max $5 per bet. Always show the full prediction market summary and get approval before calling this unless confidence >= 7 AND cost <= $2.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "ticker":      {"type": "string"},
-                "option_type": {"type": "string", "enum": ["call", "put"], "default": "call"}
+                "ticker":          {"type": "string", "description": "Kalshi market ticker e.g. FED-25JUN-T5.25"},
+                "side":            {"type": "string", "enum": ["yes", "no"]},
+                "count":           {"type": "integer", "description": "Number of contracts"},
+                "yes_price_cents": {"type": "integer", "description": "Price in cents (1-99)"},
+                "action":          {"type": "string", "enum": ["buy", "sell"], "default": "buy"}
             },
-            "required": ["ticker"]
+            "required": ["ticker", "side", "count", "yes_price_cents"]
+        }
+    },
+    {
+        "name": "cancel_kalshi_order",
+        "description": "Cancel an open Kalshi order by order ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "order_id": {"type": "string"}
+            },
+            "required": ["order_id"]
+        }
+    },
+    {
+        "name": "get_kalshi_events",
+        "description": "Browse Kalshi events with nested markets. More reliable than market search for finding sports markets.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query":    {"type": "string"},
+                "category": {"type": "string", "description": "e.g. Basketball, Baseball, Hockey, Sports"},
+                "limit":    {"type": "integer", "default": 10}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "get_kalshi_sports_today",
+        "description": "Get ALL live and upcoming sports markets on Kalshi today — NBA, MLB, NHL, all sports. Sorted by volume. Use first when looking for any sports bet.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "get_live_nba_games",
+        "description": "Get all NBA games today with live scores, current quarter, time remaining, and quarter-by-quarter breakdown. Use to see games live RIGHT NOW before any NBA prediction market bet.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "get_nba_injuries",
+        "description": "Get the current NBA injury report — all players listed as Out, Questionable, or Doubtful.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "get_nba_standings",
+        "description": "Get current NBA standings for both conferences — win%, home/away record, last 10 games, streak.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "get_nba_team_context",
+        "description": "Get full betting context for an NBA team — current standing, last 10 games with results, and active injuries. Run on BOTH teams before any NBA prediction market analysis.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "team_name": {"type": "string", "description": "Team name e.g. Celtics, Lakers, Warriors, Knicks"}
+            },
+            "required": ["team_name"]
         }
     }
 ]
