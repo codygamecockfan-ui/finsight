@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#03060a">
@@ -40,7 +40,7 @@
 
 html, body {
   height: 100%;
-  height: -webkit-fill-available;
+  height: 100dvh;
   background: var(--bg-0);
   color: var(--text);
   font-family: var(--body);
@@ -91,7 +91,7 @@ body { display: flex; flex-direction: column; position: relative; }
 @keyframes drift1 { 0%{transform:translate(0,0)} 100%{transform:translate(100px,60px)} }
 @keyframes drift2 { 0%{transform:translate(0,0)} 100%{transform:translate(-80px,-40px)} }
 
-/* corner brackets */
+/* corner brackets — desktop only, hidden on mobile */
 .corner {
   position: fixed; width: 28px; height: 28px;
   border: 2px solid var(--cyan); z-index: 5; pointer-events: none;
@@ -105,9 +105,10 @@ body { display: flex; flex-direction: column; position: relative; }
 /* ============== APP LAYOUT ============== */
 .app {
   display: flex; flex-direction: column;
-  height: 100vh; height: -webkit-fill-available;
+  height: 100vh; height: 100dvh;
   max-width: 1100px; margin: 0 auto;
   position: relative; z-index: 10;
+  width: 100%;
 }
 
 /* ============== HEADER ============== */
@@ -115,20 +116,30 @@ header {
   background: linear-gradient(180deg, rgba(6, 11, 18, 0.9), rgba(6, 11, 18, 0.4));
   border-bottom: 1px solid var(--edge);
   backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   padding: 14px 20px;
+  padding-top: max(14px, env(safe-area-inset-top));
   display: flex; align-items: center; gap: 14px;
   flex-shrink: 0;
+}
+
+.brand-block {
+  display: flex; align-items: center; gap: 10px;
+  min-width: 0;
 }
 
 .brand-mark {
   font-size: 22px; color: var(--cyan);
   filter: drop-shadow(0 0 8px var(--cyan-glow));
   animation: brandPulse 3s ease-in-out infinite;
+  flex-shrink: 0;
 }
 @keyframes brandPulse {
   0%, 100% { filter: drop-shadow(0 0 8px var(--cyan-glow)); }
   50% { filter: drop-shadow(0 0 16px var(--cyan)); }
 }
+
+.brand-text { min-width: 0; }
 
 .brand-name {
   font-family: var(--display); font-weight: 900; font-size: 19px;
@@ -137,6 +148,7 @@ header {
   background-size: 200% 100%;
   -webkit-background-clip: text; background-clip: text; color: transparent;
   animation: brandShine 5s linear infinite;
+  white-space: nowrap;
 }
 @keyframes brandShine {
   from { background-position: 200% 0; }
@@ -146,10 +158,12 @@ header {
 .brand-sub {
   font-family: var(--mono); font-size: 10px;
   color: var(--text-mute); letter-spacing: 0.2em;
+  white-space: nowrap;
 }
 
 .meta-group {
   margin-left: auto; display: flex; gap: 18px;
+  align-items: center;
 }
 
 .meta-cell {
@@ -157,13 +171,14 @@ header {
   font-family: var(--mono);
 }
 .meta-label { font-size: 8px; color: var(--text-mute); letter-spacing: 0.3em; margin-bottom: 2px; }
-.meta-val { font-size: 11px; color: var(--cyan); display: flex; align-items: center; gap: 5px; }
+.meta-val { font-size: 11px; color: var(--cyan); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 .status-live { color: var(--green); }
 
 .pulse-dot {
   width: 6px; height: 6px; background: var(--green);
   border-radius: 50%; box-shadow: 0 0 8px var(--green);
   animation: pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
 }
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -175,6 +190,7 @@ header {
   color: var(--amber); text-decoration: none;
   letter-spacing: 0.2em; padding: 5px 10px;
   border: 1px solid var(--amber); transition: all 0.2s;
+  white-space: nowrap;
 }
 .trades-link:hover {
   background: rgba(255, 179, 0, 0.1);
@@ -252,6 +268,7 @@ header {
   line-height: 1.65;
   font-size: 14px;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .msg-user .bubble {
@@ -290,6 +307,7 @@ header {
   background: rgba(3, 6, 10, 0.7); padding: 12px;
   border: 1px solid var(--edge); margin: 8px 0;
   overflow-x: auto; font-size: 12px;
+  -webkit-overflow-scrolling: touch;
 }
 .bubble pre code { background: transparent; padding: 0; }
 .bubble ul, .bubble ol { padding-left: 20px; margin: 6px 0; }
@@ -305,6 +323,8 @@ header {
   width: 100%; border-collapse: collapse;
   font-size: 12px; margin: 6px 0;
   background: rgba(3, 6, 10, 0.4);
+  display: block; overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .bubble th {
   background: rgba(0, 229, 255, 0.08);
@@ -313,15 +333,11 @@ header {
   font-family: var(--mono); font-size: 10px;
   letter-spacing: 0.15em;
   border-bottom: 1px solid var(--edge);
+  white-space: nowrap;
 }
 .bubble td {
   padding: 6px 10px;
   border-bottom: 1px solid rgba(0, 229, 255, 0.1);
-}
-
-/* highlight PLAY separators and confidence */
-.bubble {
-  /* These will be targeted via inline post-processing */
 }
 
 /* welcome block */
@@ -349,6 +365,7 @@ header {
   background: rgba(255, 179, 0, 0.04);
   text-align: left;
   text-shadow: 0 0 6px var(--amber-glow);
+  line-height: 1.5;
 }
 
 /* typing indicator */
@@ -427,7 +444,7 @@ header {
 .preview-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .preview-thumb .remove-img {
   position: absolute; top: 2px; right: 2px;
-  width: 16px; height: 16px;
+  width: 18px; height: 18px;
   background: rgba(3, 6, 10, 0.8);
   border: 1px solid var(--magenta);
   color: var(--magenta);
@@ -484,6 +501,7 @@ header {
   padding: 10px 4px;
   min-height: 38px; max-height: 120px;
   line-height: 1.4;
+  min-width: 0;
 }
 #userInput::placeholder { color: var(--text-mute); letter-spacing: 0.08em; }
 
@@ -514,16 +532,139 @@ header {
   padding: 6px 0 2px; font-family: var(--mono);
 }
 
-/* ============== MOBILE ============== */
+/* ============== TABLET (≤900px) ============== */
+@media (max-width: 900px) {
+  .corner { width: 18px; height: 18px; }
+  .brand-sub { display: none; }
+}
+
+/* ============== MOBILE (≤640px) ============== */
 @media (max-width: 640px) {
-  .brand-sub, .meta-group .meta-cell:nth-child(2) { display: none; }
-  header { padding: 12px 16px; gap: 10px; }
-  .quick-prompts { padding: 8px 16px; }
-  #chat { padding: 16px; }
-  .input-zone { padding: 10px 14px; }
+  /* Hide corner brackets entirely on phones — they take valuable space */
+  .corner { display: none; }
+
+  /* Header: stack tighter, drop the brand subtitle, simplify meta */
+  header {
+    padding: 10px 14px;
+    padding-top: max(10px, env(safe-area-inset-top));
+    gap: 10px;
+  }
+  .brand-mark { font-size: 18px; }
+  .brand-name { font-size: 15px; letter-spacing: 0.22em; }
+  .brand-sub { display: none; }
+
+  /* Meta: drop session clock and "STATUS" label, keep the dot + JOURNAL link */
+  .meta-group { gap: 8px; }
+  .meta-cell:first-child { display: none; } /* hide session clock on mobile */
+  .meta-label { display: none; }
+  .meta-val { font-size: 10px; }
+  .meta-val.status-live { gap: 4px; }
+  /* Show only the pulse dot, not the LIVE text, to save space */
+  .meta-val.status-live .live-text { display: none; }
+
+  .trades-link { padding: 4px 8px; font-size: 9px; letter-spacing: 0.15em; }
+
+  /* Quick prompts: keep horizontal scroll but tighter padding */
+  .quick-prompts {
+    padding: 8px 14px;
+    gap: 6px;
+  }
+  .quick-btn {
+    padding: 6px 11px;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+  }
+
+  /* Chat: tighter padding, full-width bubbles */
+  #chat {
+    padding: 14px;
+    gap: 14px;
+  }
+  .msg-user { max-width: 88%; }
+  .msg-ai { width: 100%; max-width: 100%; }
+
+  .bubble {
+    padding: 12px 14px;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .msg-ai .bubble { font-size: 12.5px; }
+
+  /* Welcome block tighter */
+  .welcome-block { padding: 20px 12px; }
+  .welcome-title { font-size: 16px; letter-spacing: 0.18em; }
+  .welcome-sub { font-size: 12px; }
+  .welcome-doctrine { font-size: 9px; padding: 8px 11px; }
+
+  /* Markdown in bubbles */
+  .bubble h2, .bubble h3 { font-size: 13px; }
+  .bubble code, .bubble pre { font-size: 11px; }
+
+  /* Input zone: drop CLEAR button, shrink EXECUTE label, keep attach + send */
+  .input-zone {
+    padding: 10px 14px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+
+  .input-row {
+    padding: 5px 8px;
+    gap: 6px;
+  }
+  .input-prefix { display: none; } /* hide ▸ prefix to save room */
+
+  .attach-btn { width: 36px; height: 36px; }
+  .attach-btn svg { width: 15px; height: 15px; }
+
+  #userInput {
+    font-size: 16px; /* prevents iOS zoom on focus */
+    padding: 9px 2px;
+    min-height: 36px;
+  }
+
+  /* Hide CLEAR on mobile — long-press on welcome to wipe instead, or use header */
   .clear-btn { display: none; }
-  .meta-group { gap: 10px; }
-  .corner { width: 20px; height: 20px; }
+
+  /* Send button: just an arrow icon, no text */
+  .send-btn {
+    height: 36px;
+    padding: 0 12px;
+    font-size: 0; /* hide EXECUTE text */
+    gap: 0;
+  }
+  .send-btn .send-label { display: none; }
+  .send-btn .send-arrow {
+    font-size: 16px;
+    color: var(--bg-0);
+    font-weight: 900;
+  }
+
+  .disclaimer {
+    font-size: 8px;
+    letter-spacing: 0.25em;
+    padding: 5px 0 1px;
+  }
+
+  /* Image previews tighter */
+  .preview-thumb { width: 48px; height: 48px; }
+
+  .typing-label { font-size: 9px; }
+}
+
+/* ============== TINY PHONES (≤380px) ============== */
+@media (max-width: 380px) {
+  header { padding: 8px 12px; gap: 8px; }
+  .brand-name { font-size: 13px; letter-spacing: 0.18em; }
+  .trades-link { font-size: 8px; padding: 3px 7px; }
+
+  .quick-btn { padding: 5px 9px; font-size: 8.5px; }
+
+  #chat { padding: 12px; }
+  .bubble { padding: 10px 12px; font-size: 12.5px; }
+
+  .input-zone { padding: 8px 12px; }
+  .input-row { padding: 4px 6px; gap: 5px; }
+  .attach-btn { width: 34px; height: 34px; }
+  .send-btn { height: 34px; padding: 0 10px; }
 }
 </style>
 </head>
@@ -535,7 +676,7 @@ header {
 <div class="bg-glow bg-glow-1"></div>
 <div class="bg-glow bg-glow-2"></div>
 
-<!-- corner brackets -->
+<!-- corner brackets (desktop only via CSS) -->
 <div class="corner tl"></div>
 <div class="corner tr"></div>
 <div class="corner bl"></div>
@@ -544,10 +685,12 @@ header {
 <div class="app">
 
   <header>
-    <span class="brand-mark">◈</span>
-    <div>
-      <div class="brand-name">FINSIGHT</div>
-      <div class="brand-sub">v2.0 // TACTICAL OPS</div>
+    <div class="brand-block">
+      <span class="brand-mark">◈</span>
+      <div class="brand-text">
+        <div class="brand-name">FINSIGHT</div>
+        <div class="brand-sub">v2.0 // TACTICAL OPS</div>
+      </div>
     </div>
     <div class="meta-group">
       <div class="meta-cell">
@@ -556,7 +699,7 @@ header {
       </div>
       <div class="meta-cell">
         <span class="meta-label">STATUS</span>
-        <span class="meta-val status-live"><span class="pulse-dot"></span>LIVE</span>
+        <span class="meta-val status-live"><span class="pulse-dot"></span><span class="live-text">LIVE</span></span>
       </div>
       <a href="/trades" class="trades-link">◇ JOURNAL</a>
     </div>
@@ -569,7 +712,7 @@ header {
     <button class="quick-btn" onclick="quickSend('Analyze NVDA — technicals, news, 3 ranked option plays.')">▸ NVDA</button>
     <button class="quick-btn" onclick="quickSend('What geopolitical events right now could impact markets? 3 plays tied to them.')">▸ GEO PLAYS</button>
     <button class="quick-btn" onclick="quickSend('Market overview — SPY, QQQ, VIX, top movers.')">▸ OVERVIEW</button>
-    <button class="quick-btn" onclick="quickSend('Review my recent trades. Be brutal about losing patterns.')">▸ JOURNAL REVIEW</button>
+    <button class="quick-btn" onclick="quickSend('Review my recent trades. Be brutal about losing patterns.')">▸ JOURNAL</button>
   </div>
 
   <div id="chat">
@@ -587,7 +730,7 @@ header {
     <div class="preview-strip" id="previewStrip"></div>
     <div class="input-row">
       <span class="input-prefix">▸</span>
-      <button class="attach-btn" id="attachBtn" onclick="document.getElementById('imageInput').click()" title="Attach image">
+      <button class="attach-btn" id="attachBtn" onclick="document.getElementById('imageInput').click()" title="Attach image" aria-label="Attach image">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="3" width="18" height="18" rx="1"/>
           <circle cx="8.5" cy="8.5" r="1.5"/>
@@ -596,9 +739,9 @@ header {
       </button>
       <textarea id="userInput" placeholder="Query the grid..." rows="1"></textarea>
       <button class="clear-btn" onclick="clearChat()">CLEAR</button>
-      <button class="send-btn" id="sendBtn" onclick="sendMessage()">
-        <span>EXECUTE</span>
-        <span>→</span>
+      <button class="send-btn" id="sendBtn" onclick="sendMessage()" aria-label="Send">
+        <span class="send-label">EXECUTE</span>
+        <span class="send-arrow">→</span>
       </button>
     </div>
     <div class="disclaimer">◇ PAPER TRADING ONLY · NOT FINANCIAL ADVICE ◇</div>
@@ -618,7 +761,7 @@ const attachBtn = document.getElementById('attachBtn');
 const previewStrip = document.getElementById('previewStrip');
 const clockEl = document.getElementById('sessionClock');
 
-// session clock
+// session clock (only updates if visible — hidden on mobile via CSS)
 setInterval(() => {
   const elapsed = Math.floor((Date.now() - sessionStart) / 1000);
   const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
@@ -633,6 +776,7 @@ input.addEventListener('input', () => {
   input.style.height = Math.min(input.scrollHeight, 120) + 'px';
 });
 
+// only send-on-enter for desktop; mobile uses send button
 input.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 640) {
     e.preventDefault();
@@ -681,7 +825,7 @@ function renderPreviews() {
   pendingImages.forEach((img, i) => {
     const thumb = document.createElement('div');
     thumb.className = 'preview-thumb';
-    thumb.innerHTML = `<img src="${img.previewUrl}" alt="attachment"><button class="remove-img" onclick="removeImage(${i})">✕</button>`;
+    thumb.innerHTML = `<img src="${img.previewUrl}" alt="attachment"><button class="remove-img" onclick="removeImage(${i})" aria-label="Remove">✕</button>`;
     previewStrip.appendChild(thumb);
   });
 }
@@ -702,7 +846,6 @@ function scrollBottom() {
 }
 
 function addUserMessage(content, imageUrls = []) {
-  // remove welcome block on first message
   const welcome = chat.querySelector('.welcome-block');
   if (welcome) welcome.remove();
 
@@ -765,24 +908,16 @@ function removeTypingIndicator() {
   if (t) t.remove();
 }
 
-// highlight PLAY separators and confidence markers after markdown renders
 function decorateTradeResponse(bubble) {
   let html = bubble.innerHTML;
-
-  // Highlight ━━━ PLAY X ━━━ separators
   html = html.replace(/(━━━[^\n<]*━━━)/g, '<span style="color:var(--cyan); font-weight:700; text-shadow:0 0 6px var(--cyan-glow); display:block; margin:12px 0 6px;">$1</span>');
-
-  // Color confidence percentages
   html = html.replace(/CONF (\d+)%/g, (m, p) => {
     const pct = parseInt(p);
     const color = pct >= 65 ? 'var(--green)' : pct >= 50 ? 'var(--amber)' : 'var(--red)';
     return `CONF <span style="color:${color}; font-weight:700; text-shadow:0 0 4px ${color};">${pct}%</span>`;
   });
-
-  // Counter-case and Edge check in magenta
   html = html.replace(/(▸ Counter-case:[^\n<]*)/g, '<span style="color:var(--magenta);">$1</span>');
   html = html.replace(/(▸ Edge check:[^\n<]*)/g, '<span style="color:var(--magenta);">$1</span>');
-
   bubble.innerHTML = html;
 }
 
@@ -802,7 +937,6 @@ async function sendMessage() {
 
   addUserMessage(text || '📎 Image attached', previewUrls);
 
-  // build content for history
   let userContent;
   if (imagesToSend.length > 0) {
     userContent = [];
@@ -865,7 +999,6 @@ async function sendMessage() {
         try {
           const json = JSON.parse(raw);
 
-          // status event from critique pass
           if (json.status === 'critiquing') {
             updateTypingLabel('SELF-CRITIQUE');
             continue;
@@ -873,7 +1006,6 @@ async function sendMessage() {
 
           const chunk = json.text || '';
           if (chunk) {
-            // first token arrives — swap typing for streaming bubble
             if (!bubble) {
               removeTypingIndicator();
               bubble = createStreamingBubble();
@@ -889,7 +1021,6 @@ async function sendMessage() {
       }
     }
 
-    // final render
     if (bubble) {
       bubble.innerHTML = marked.parse(fullText || '(no response)');
       decorateTradeResponse(bubble);
@@ -925,10 +1056,31 @@ function clearChat() {
   `;
 }
 
+// long-press on welcome block to clear (mobile substitute for CLEAR button)
+let pressTimer = null;
+chat.addEventListener('touchstart', e => {
+  if (e.target.closest('.welcome-block') || e.target.closest('.bubble')) {
+    pressTimer = setTimeout(() => {
+      // only enable long-press-clear if there are messages to clear
+      if (chat.querySelectorAll('.msg').length > 0) {
+        clearChat();
+      }
+    }, 800);
+  }
+}, { passive: true });
+chat.addEventListener('touchend', () => {
+  if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+}, { passive: true });
+chat.addEventListener('touchmove', () => {
+  if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+}, { passive: true });
+
+// dynamic viewport height for mobile keyboards
 function fixHeight() {
   document.querySelector('.app').style.height = window.innerHeight + 'px';
 }
 window.addEventListener('resize', fixHeight);
+window.addEventListener('orientationchange', fixHeight);
 fixHeight();
 
 input.focus();
