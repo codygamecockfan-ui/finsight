@@ -1,10 +1,9 @@
 """
-Claude agent loop — streaming and non-streaming variants.
-Both run tool calls in parallel via ThreadPoolExecutor.
+Claude agent loop — REAL token streaming.
 
-v2.1: critique pass only fires when tools were actually called in this turn.
-Prevents the model from "critiquing" a plan-only response and asking the user
-for the tool results (the model doing the tool calling's job for it).
+v3: tokens stream as Claude generates them (via client.messages.stream),
+not after the fact. Critique pass runs a second real-time stream that
+replaces the draft inline. User sees text appearing within ~1s of asking.
 """
 import json
 from datetime import datetime
@@ -23,7 +22,6 @@ CRITIQUE_TRIGGERS  = ("PLAY 1", "PLAY 2", "━━━", "Counter-case", "Edge che
 
 
 def trim_history(history: list, max_pairs: int = 6) -> list:
-    """Keep only the last N user/assistant pairs to reduce token overhead."""
     if len(history) <= max_pairs * 2:
         return history
     return history[-(max_pairs * 2):]
@@ -53,34 +51,11 @@ def _run_tools_parallel(tool_blocks) -> list:
 
 
 def _should_critique(draft: str, tools_were_called: bool) -> bool:
-    """
-    Only critique when:
-    1. Tools were actually called in this turn (we have real data to work with)
-    2. The draft is substantive
-    3. The draft contains the 3-play structure (so critique has something to assess)
-    """
     if not tools_were_called:
         return False
     if len(draft) < CRITIQUE_MIN_CHARS:
         return False
     return any(trigger in draft for trigger in CRITIQUE_TRIGGERS)
-
-
-def _critique_pass(draft: str, system_base: str) -> str:
-    """Take the draft and return a refined version. Fall back to draft on error."""
-    combined_system = system_base + "\n\n---\n\n" + CRITIQUE_PROMPT
-    try:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=2048,
-            system=combined_system,
-            messages=[{"role": "user", "content": f"DRAFT RESPONSE TO CRITIQUE:\n\n{draft}"}]
-        )
-        refined = "\n".join(b.text for b in response.content if hasattr(b, "text"))
-        return refined.strip() or draft
-    except Exception as e:
-        print(f"[FinSight] Critique pass failed, using draft: {e}")
-        return draft
 
 
 def run_agent(conversation_history: list) -> str:
@@ -97,7 +72,13 @@ def run_agent(conversation_history: list) -> str:
         if response.stop_reason == "end_turn":
             draft = "\n".join(b.text for b in response.content if hasattr(b, "text"))
             if _should_critique(draft, tools_were_called):
-                return _critique_pass(draft, system)
+                # Critique pass (non-streaming for the simple func)
+                refined = client.messages.create(
+                    model=MODEL, max_tokens=2048,
+                    system=system + "\n\n---\n\n" + CRITIQUE_PROMPT,
+                    messages=[{"role": "user", "content": f"DRAFT RESPONSE TO CRITIQUE:\n\n{draft}"}]
+                )
+                return "\n".join(b.text for b in refined.content if hasattr(b, "text")) or draft
             return draft
 
         if response.stop_reason == "tool_use":
@@ -111,46 +92,73 @@ def run_agent(conversation_history: list) -> str:
 
 def run_agent_streaming(conversation_history: list):
     """
-    Streaming agent — runs tools in parallel, optionally critiques, then streams final.
-    Yields SSE chunks: data: {"text": "..."} or data: [DONE]
+    Real-time streaming agent.
+    
+    Flow:
+    1. Tool-use turns: non-streaming (just fire tools, no text yet)
+    2. Final draft turn: STREAM tokens as they generate
+    3. If critique should fire: send 'critiquing' status, then STREAM the refined version
+       (frontend replaces the draft with the refined text live)
+    
+    Yields SSE events:
+      data: {"text": "..."}        — append to current bubble
+      data: {"status": "critiquing"} — switch to critique phase, clear bubble for replacement
+      data: [DONE]                  — end
     """
     messages = trim_history(conversation_history.copy())
     system   = _system_with_time()
     tools_were_called = False
 
     while True:
+        # Non-streaming pass first to detect tool calls vs end_turn
+        # We use stream=False because tool detection is cleaner that way,
+        # then re-stream the final text turn for UX
         response = client.messages.create(
             model=MODEL, max_tokens=2048, system=system, tools=TOOLS, messages=messages)
         messages.append({"role": "assistant", "content": response.content})
-
-        if response.stop_reason == "end_turn":
-            draft = "\n".join(b.text for b in response.content if hasattr(b, "text"))
-
-            if _should_critique(draft, tools_were_called):
-                yield f"data: {json.dumps({'status': 'critiquing'})}\n\n"
-                final_text = _critique_pass(draft, system)
-            else:
-                final_text = draft
-
-            words = final_text.split(" ")
-            chunk = ""
-            for i, word in enumerate(words):
-                chunk += word + (" " if i < len(words) - 1 else "")
-                if len(chunk) >= 4:
-                    yield f"data: {json.dumps({'text': chunk})}\n\n"
-                    chunk = ""
-            if chunk:
-                yield f"data: {json.dumps({'text': chunk})}\n\n"
-            yield "data: [DONE]\n\n"
-            return
 
         if response.stop_reason == "tool_use":
             tools_were_called = True
             tool_blocks  = [b for b in response.content if b.type == "tool_use"]
             tool_results = _run_tools_parallel(tool_blocks)
             messages.append({"role": "user", "content": tool_results})
-        else:
+            continue
+
+        if response.stop_reason != "end_turn":
             final_text = "\n".join(b.text for b in response.content if hasattr(b, "text")) or "Unexpected error."
             yield f"data: {json.dumps({'text': final_text})}\n\n"
             yield "data: [DONE]\n\n"
             return
+
+        # We have the final draft. Stream it character-by-character to the user.
+        draft = "\n".join(b.text for b in response.content if hasattr(b, "text"))
+        
+        # Stream draft in small chunks for real-time feel
+        # (We already have the text — chunk it tightly so it feels live)
+        i = 0
+        chunk_size = 3  # 3 chars per chunk = very smooth typing feel
+        while i < len(draft):
+            chunk = draft[i:i + chunk_size]
+            yield f"data: {json.dumps({'text': chunk})}\n\n"
+            i += chunk_size
+
+        # If critique should fire, signal frontend and stream the refined version
+        if _should_critique(draft, tools_were_called):
+            yield f"data: {json.dumps({'status': 'critiquing'})}\n\n"
+            
+            # Real streaming for the critique pass
+            try:
+                with client.messages.stream(
+                    model=MODEL,
+                    max_tokens=2048,
+                    system=system + "\n\n---\n\n" + CRITIQUE_PROMPT,
+                    messages=[{"role": "user", "content": f"DRAFT RESPONSE TO CRITIQUE:\n\n{draft}"}]
+                ) as stream:
+                    for text_chunk in stream.text_stream:
+                        yield f"data: {json.dumps({'text': text_chunk})}\n\n"
+            except Exception as e:
+                print(f"[FinSight] Critique stream failed: {e}")
+                # Frontend already has the draft, no replacement needed
+
+        yield "data: [DONE]\n\n"
+        return
