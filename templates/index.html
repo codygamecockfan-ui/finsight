@@ -5,35 +5,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#03060a">
-<title>FINSIGHT // TACTICAL</title>
+<meta name="theme-color" content="#0a0a0a">
+<title>FinSight</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<!--
+  Typography choices, custom-built logo treatment:
+  - Instrument Serif: editorial, sharp serif for the wordmark + headers
+  - Inter: clean sans for body
+  - JetBrains Mono: monospace for data/numbers
+-->
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
 <style>
 :root {
-  --bg-0: #03060a;
-  --bg-1: #060b12;
-  --panel: rgba(10, 18, 32, 0.55);
-  --edge: rgba(0, 229, 255, 0.25);
-  --edge-bright: rgba(0, 229, 255, 0.6);
-  --cyan: #00e5ff;
-  --cyan-dim: #00b8d4;
-  --cyan-glow: rgba(0, 229, 255, 0.45);
-  --amber: #ffb300;
-  --amber-glow: rgba(255, 179, 0, 0.5);
-  --magenta: #ff2e7e;
-  --magenta-glow: rgba(255, 46, 126, 0.45);
-  --green: #00ff9c;
-  --red: #ff3860;
-  --text: #d8f3ff;
-  --text-dim: #7a9bb3;
-  --text-mute: #4a6378;
-  --mono: 'JetBrains Mono', ui-monospace, monospace;
-  --display: 'Orbitron', sans-serif;
-  --body: 'Rajdhani', sans-serif;
+  --bg:        #0a0a0a;
+  --bg-soft:   #111111;
+  --bg-card:   #141414;
+  --line:      #1f1f1f;
+  --line-soft: #161616;
+  --text:      #f5f5f0;     /* warm white */
+  --text-dim:  #888;
+  --text-mute: #555;
+  --accent:    #d4c5a0;     /* warm cream — single accent */
+  --accent-soft: rgba(212, 197, 160, 0.12);
+  --green:     #7cb992;
+  --red:       #c97474;
+  --serif:     'Instrument Serif', Georgia, serif;
+  --sans:      'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --mono:      'JetBrains Mono', ui-monospace, monospace;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -41,169 +42,145 @@
 html, body {
   height: 100%;
   height: 100dvh;
-  background: var(--bg-0);
+  background: var(--bg);
   color: var(--text);
-  font-family: var(--body);
+  font-family: var(--sans);
   font-size: 15px;
-  letter-spacing: 0.02em;
+  font-weight: 400;
+  letter-spacing: -0.005em;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-body { display: flex; flex-direction: column; position: relative; }
+body { display: flex; flex-direction: column; }
 
-/* ============== BACKGROUND LAYERS ============== */
-.bg-grid {
-  position: fixed; inset: 0;
-  background-image:
-    linear-gradient(rgba(0, 229, 255, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 229, 255, 0.06) 1px, transparent 1px);
-  background-size: 48px 48px;
-  animation: gridDrift 40s linear infinite;
-  z-index: 0; pointer-events: none;
-}
-@keyframes gridDrift {
-  from { transform: translate(0, 0); }
-  to { transform: translate(48px, 48px); }
-}
-
-.bg-scanline {
-  position: fixed; inset: 0;
-  background: repeating-linear-gradient(
-    to bottom, transparent 0, transparent 3px,
-    rgba(0, 229, 255, 0.025) 3px, rgba(0, 229, 255, 0.025) 4px);
-  z-index: 1; pointer-events: none; mix-blend-mode: screen;
-}
-
-.bg-glow {
-  position: fixed; border-radius: 50%;
-  filter: blur(120px); z-index: 0; pointer-events: none;
-}
-.bg-glow-1 {
-  width: 700px; height: 700px; top: -200px; left: -200px;
-  background: radial-gradient(circle, rgba(0, 229, 255, 0.15), transparent 70%);
-  animation: drift1 22s ease-in-out infinite alternate;
-}
-.bg-glow-2 {
-  width: 600px; height: 600px; bottom: -150px; right: -150px;
-  background: radial-gradient(circle, rgba(255, 46, 126, 0.12), transparent 70%);
-  animation: drift2 28s ease-in-out infinite alternate;
-}
-@keyframes drift1 { 0%{transform:translate(0,0)} 100%{transform:translate(100px,60px)} }
-@keyframes drift2 { 0%{transform:translate(0,0)} 100%{transform:translate(-80px,-40px)} }
-
-/* corner brackets — desktop only, hidden on mobile */
-.corner {
-  position: fixed; width: 28px; height: 28px;
-  border: 2px solid var(--cyan); z-index: 5; pointer-events: none;
-  box-shadow: 0 0 12px var(--cyan-glow);
-}
-.corner.tl { top: 10px; left: 10px; border-right: none; border-bottom: none; }
-.corner.tr { top: 10px; right: 10px; border-left: none; border-bottom: none; }
-.corner.bl { bottom: 10px; left: 10px; border-right: none; border-top: none; }
-.corner.br { bottom: 10px; right: 10px; border-left: none; border-top: none; }
-
-/* ============== APP LAYOUT ============== */
 .app {
   display: flex; flex-direction: column;
   height: 100vh; height: 100dvh;
-  max-width: 1100px; margin: 0 auto;
-  position: relative; z-index: 10;
+  max-width: 760px; margin: 0 auto;
   width: 100%;
+  position: relative;
 }
 
 /* ============== HEADER ============== */
 header {
-  background: linear-gradient(180deg, rgba(6, 11, 18, 0.9), rgba(6, 11, 18, 0.4));
-  border-bottom: 1px solid var(--edge);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  padding: 14px 20px;
-  padding-top: max(14px, env(safe-area-inset-top));
-  display: flex; align-items: center; gap: 14px;
-  flex-shrink: 0;
-}
-
-.brand-block {
-  display: flex; align-items: center; gap: 10px;
-  min-width: 0;
-}
-
-.brand-mark {
-  font-size: 22px; color: var(--cyan);
-  filter: drop-shadow(0 0 8px var(--cyan-glow));
-  animation: brandPulse 3s ease-in-out infinite;
-  flex-shrink: 0;
-}
-@keyframes brandPulse {
-  0%, 100% { filter: drop-shadow(0 0 8px var(--cyan-glow)); }
-  50% { filter: drop-shadow(0 0 16px var(--cyan)); }
-}
-
-.brand-text { min-width: 0; }
-
-.brand-name {
-  font-family: var(--display); font-weight: 900; font-size: 19px;
-  letter-spacing: 0.28em;
-  background: linear-gradient(90deg, var(--cyan), #ffffff, var(--cyan));
-  background-size: 200% 100%;
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-  animation: brandShine 5s linear infinite;
-  white-space: nowrap;
-}
-@keyframes brandShine {
-  from { background-position: 200% 0; }
-  to { background-position: -200% 0; }
-}
-
-.brand-sub {
-  font-family: var(--mono); font-size: 10px;
-  color: var(--text-mute); letter-spacing: 0.2em;
-  white-space: nowrap;
-}
-
-.meta-group {
-  margin-left: auto; display: flex; gap: 18px;
+  display: flex;
   align-items: center;
-}
-
-.meta-cell {
-  display: flex; flex-direction: column; align-items: flex-end;
-  font-family: var(--mono);
-}
-.meta-label { font-size: 8px; color: var(--text-mute); letter-spacing: 0.3em; margin-bottom: 2px; }
-.meta-val { font-size: 11px; color: var(--cyan); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
-.status-live { color: var(--green); }
-
-.pulse-dot {
-  width: 6px; height: 6px; background: var(--green);
-  border-radius: 50%; box-shadow: 0 0 8px var(--green);
-  animation: pulse 1.2s ease-in-out infinite;
+  justify-content: space-between;
+  padding: 22px 28px;
+  padding-top: max(22px, calc(env(safe-area-inset-top) + 16px));
+  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
-}
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.85); }
+  background: var(--bg);
 }
 
-.trades-link {
-  font-family: var(--mono); font-size: 10px;
-  color: var(--amber); text-decoration: none;
-  letter-spacing: 0.2em; padding: 5px 10px;
-  border: 1px solid var(--amber); transition: all 0.2s;
-  white-space: nowrap;
+/* ============== LOGO ============== */
+/*
+ The logo is custom: a serif lowercase "f" with a small accent bar
+ next to "finsight" in a thin sans. Editorial / financial gazette feel.
+*/
+.logo {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  text-decoration: none;
+  color: inherit;
+  user-select: none;
 }
-.trades-link:hover {
-  background: rgba(255, 179, 0, 0.1);
-  box-shadow: 0 0 12px var(--amber-glow);
+
+.logo-mark {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 32px;
+  line-height: 1;
+  color: var(--accent);
+  position: relative;
+  letter-spacing: -0.02em;
+  transition: color 0.3s ease;
+}
+
+.logo-mark::after {
+  content: '';
+  position: absolute;
+  right: -7px;
+  bottom: 4px;
+  width: 4px;
+  height: 4px;
+  background: var(--accent);
+  border-radius: 50%;
+  opacity: 0.7;
+}
+
+.logo-text {
+  font-family: var(--sans);
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  text-transform: lowercase;
+}
+
+.logo-text .light {
+  color: var(--text-dim);
+  font-weight: 300;
+}
+
+.logo:hover .logo-mark { color: var(--text); }
+
+/* status + nav on right */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+}
+
+.status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: breathe 2.5s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+.journal-link {
+  font-family: var(--sans);
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+  padding: 6px 0;
+  border-bottom: 1px solid transparent;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.journal-link:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 /* ============== QUICK PROMPTS ============== */
 .quick-prompts {
-  display: flex; gap: 8px;
-  padding: 10px 20px;
+  display: flex;
+  gap: 8px;
+  padding: 14px 28px;
   overflow-x: auto;
-  border-bottom: 1px solid var(--edge);
-  background: rgba(6, 11, 18, 0.5);
+  border-bottom: 1px solid var(--line-soft);
   flex-shrink: 0;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
@@ -211,540 +188,589 @@ header {
 .quick-prompts::-webkit-scrollbar { display: none; }
 
 .quick-btn {
-  background: rgba(0, 229, 255, 0.04);
-  border: 1px solid var(--edge);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 400;
   color: var(--text-dim);
-  padding: 7px 13px;
-  font-family: var(--mono); font-size: 10px;
-  letter-spacing: 0.1em;
-  cursor: pointer; white-space: nowrap;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 100px;
+  padding: 7px 14px;
+  cursor: pointer;
+  white-space: nowrap;
   flex-shrink: 0;
-  transition: all 0.2s;
-  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+  letter-spacing: 0.005em;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 }
-.quick-btn:hover, .quick-btn:active {
-  border-color: var(--cyan);
-  color: var(--cyan);
-  background: rgba(0, 229, 255, 0.1);
-  box-shadow: 0 0 12px var(--cyan-glow);
+
+.quick-btn:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+  background: var(--bg-soft);
+}
+
+.quick-btn:active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* ============== CHAT AREA ============== */
 #chat {
-  flex: 1; overflow-y: auto;
-  padding: 20px;
-  display: flex; flex-direction: column; gap: 20px;
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
 }
 
 #chat::-webkit-scrollbar { width: 4px; }
 #chat::-webkit-scrollbar-track { background: transparent; }
-#chat::-webkit-scrollbar-thumb { background: var(--edge); }
+#chat::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
 
 .msg {
-  animation: fadeUp 0.25s ease;
-  display: flex; flex-direction: column;
-  max-width: 95%;
+  animation: fadeIn 0.25s ease;
 }
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(8px); }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-.msg-user { align-self: flex-end; max-width: 78%; }
-.msg-ai { align-self: flex-start; width: 96%; }
-
-.msg-label {
-  font-family: var(--mono); font-size: 9px;
-  letter-spacing: 0.3em; margin-bottom: 5px;
+/* user message: right-aligned, simple */
+.msg-user {
+  align-self: flex-end;
+  max-width: 80%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
 }
-.msg-user .msg-label { color: var(--cyan); text-align: right; }
-.msg-ai .msg-label { color: var(--amber); display: flex; align-items: center; gap: 6px; }
-.msg-ai .msg-label::before { content: '▸'; color: var(--amber); }
 
-.bubble {
-  padding: 14px 18px;
-  line-height: 1.65;
+.msg-user .bubble {
+  background: var(--bg-card);
+  color: var(--text);
+  padding: 12px 16px;
+  border-radius: 18px 18px 4px 18px;
+  font-size: 14.5px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+/* AI message: left-aligned, no bubble (pure text feel) */
+.msg-ai {
+  align-self: flex-start;
+  max-width: 100%;
+  width: 100%;
+}
+
+.msg-ai .author {
+  font-family: var(--serif);
+  font-style: italic;
   font-size: 14px;
+  color: var(--accent);
+  margin-bottom: 8px;
+  letter-spacing: 0.01em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.msg-ai .author::before {
+  content: '';
+  width: 14px; height: 1px;
+  background: var(--accent);
+  display: inline-block;
+}
+
+.msg-ai .bubble {
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--text);
   word-break: break-word;
   overflow-wrap: anywhere;
 }
 
-.msg-user .bubble {
-  background: linear-gradient(135deg, rgba(0, 229, 255, 0.15), rgba(0, 229, 255, 0.05));
-  border: 1px solid var(--cyan);
-  border-right: 3px solid var(--cyan);
-  color: var(--text);
-  box-shadow: 0 0 16px rgba(0, 229, 255, 0.12);
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 8px 100%, 0 calc(100% - 8px));
-  font-family: var(--body);
+/* markdown styling inside AI bubble */
+.bubble h1, .bubble h2, .bubble h3 {
+  font-family: var(--serif);
+  font-weight: 400;
+  color: var(--accent);
+  margin: 18px 0 8px;
+  letter-spacing: -0.01em;
 }
+.bubble h1 { font-size: 22px; }
+.bubble h2 { font-size: 19px; }
+.bubble h3 { font-size: 17px; }
+.bubble h2:first-child, .bubble h3:first-child, .bubble h1:first-child { margin-top: 0; }
 
-.msg-ai .bubble {
-  background: linear-gradient(135deg, rgba(255, 179, 0, 0.05), transparent);
-  border: 1px solid rgba(255, 179, 0, 0.3);
-  border-left: 3px solid var(--amber);
-  color: var(--text);
-  font-family: var(--mono);
-  font-size: 13px;
-  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
-}
+.bubble strong { color: var(--text); font-weight: 600; }
+.bubble em { font-style: italic; color: var(--text-dim); }
 
-/* ai markdown styling */
-.bubble h2, .bubble h3 {
-  color: var(--cyan); font-family: var(--display);
-  margin: 14px 0 6px; font-size: 14px;
-  letter-spacing: 0.1em;
-}
-.bubble h2:first-child, .bubble h3:first-child { margin-top: 0; }
-.bubble strong { color: var(--cyan); font-weight: 700; }
 .bubble code {
-  background: rgba(0, 229, 255, 0.1); padding: 1px 5px;
-  border-radius: 2px; font-size: 12px; color: var(--cyan);
+  font-family: var(--mono);
+  background: var(--bg-card);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  color: var(--accent);
 }
+
 .bubble pre {
-  background: rgba(3, 6, 10, 0.7); padding: 12px;
-  border: 1px solid var(--edge); margin: 8px 0;
-  overflow-x: auto; font-size: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin: 10px 0;
+  overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
-.bubble pre code { background: transparent; padding: 0; }
-.bubble ul, .bubble ol { padding-left: 20px; margin: 6px 0; }
-.bubble li { margin-bottom: 4px; }
-.bubble hr { border: none; border-top: 1px dashed var(--edge); margin: 10px 0; }
+.bubble pre code {
+  background: transparent;
+  padding: 0;
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.bubble ul, .bubble ol {
+  padding-left: 22px;
+  margin: 8px 0;
+}
+.bubble li { margin-bottom: 6px; }
+
+.bubble hr {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 16px 0;
+}
+
 .bubble blockquote {
-  border-left: 2px solid var(--magenta);
-  padding-left: 10px; margin: 8px 0;
-  color: var(--text-dim); font-style: italic;
+  border-left: 2px solid var(--accent);
+  padding-left: 14px;
+  margin: 10px 0;
+  color: var(--text-dim);
+  font-style: italic;
+  font-family: var(--serif);
+  font-size: 16px;
 }
 
 .bubble table {
-  width: 100%; border-collapse: collapse;
-  font-size: 12px; margin: 6px 0;
-  background: rgba(3, 6, 10, 0.4);
-  display: block; overflow-x: auto;
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 13px;
+  display: block;
+  overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
 .bubble th {
-  background: rgba(0, 229, 255, 0.08);
-  color: var(--cyan);
-  padding: 6px 10px; text-align: left;
-  font-family: var(--mono); font-size: 10px;
-  letter-spacing: 0.15em;
-  border-bottom: 1px solid var(--edge);
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
 .bubble td {
-  padding: 6px 10px;
-  border-bottom: 1px solid rgba(0, 229, 255, 0.1);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--text);
 }
 
-/* welcome block */
-.welcome-block {
-  padding: 30px 20px; text-align: center;
-  animation: fadeUp 0.5s ease;
+.bubble a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent-soft);
+  transition: border-color 0.18s ease;
 }
-.welcome-title {
-  font-family: var(--display); font-weight: 700;
-  font-size: 20px; letter-spacing: 0.22em;
-  color: var(--cyan);
-  text-shadow: 0 0 12px var(--cyan-glow);
-  margin-bottom: 10px;
-}
-.welcome-sub {
-  font-size: 13px; color: var(--text-dim);
-  max-width: 540px; margin: 0 auto 14px;
-  line-height: 1.6;
-}
-.welcome-doctrine {
-  font-family: var(--mono); font-size: 10px;
-  color: var(--amber); letter-spacing: 0.08em;
-  padding: 10px 14px; margin: 0 auto; max-width: 540px;
-  border-left: 2px solid var(--amber);
-  background: rgba(255, 179, 0, 0.04);
-  text-align: left;
-  text-shadow: 0 0 6px var(--amber-glow);
-  line-height: 1.5;
-}
+.bubble a:hover { border-bottom-color: var(--accent); }
 
-/* typing indicator */
-.typing .bubble {
-  display: flex; align-items: center; gap: 5px;
-  padding: 14px 18px;
-}
-.typing-dot {
-  width: 5px; height: 5px; border-radius: 50%;
-  background: var(--amber);
-  box-shadow: 0 0 6px var(--amber);
-  animation: bounce 0.8s infinite;
-}
-.typing-dot:nth-child(2) { animation-delay: 0.15s; }
-.typing-dot:nth-child(3) { animation-delay: 0.30s; }
-@keyframes bounce {
-  0%, 100% { transform: translateY(0); opacity: 0.6; }
-  50% { transform: translateY(-4px); opacity: 1; }
-}
-
-.typing-label {
-  margin-left: 8px; font-family: var(--mono);
-  font-size: 10px; color: var(--amber);
-  letter-spacing: 0.15em;
-}
-
-/* streaming cursor */
-.streaming-cursor {
-  display: inline-block; width: 7px; height: 14px;
-  background: var(--amber); margin-left: 2px;
-  vertical-align: middle;
-  animation: blink 0.8s steps(2) infinite;
-}
-@keyframes blink {
-  0%, 50% { opacity: 1; }
-  50.01%, 100% { opacity: 0; }
-}
-
-/* user bubble image */
+/* user image attachment */
 .msg-image {
-  max-width: 200px;
-  border: 1px solid var(--cyan);
-  margin-bottom: 6px;
+  max-width: 220px;
+  border-radius: 12px;
+  margin-bottom: 8px;
   display: block;
 }
 
-/* ============== INPUT ZONE ============== */
-.input-zone {
-  position: relative;
-  border-top: 1px solid var(--edge);
-  background: linear-gradient(0deg, rgba(0, 229, 255, 0.04), transparent);
-  padding: 12px 20px;
-  padding-bottom: max(12px, env(safe-area-inset-bottom));
-  flex-shrink: 0;
+/* ============== WELCOME ============== */
+.welcome {
+  text-align: center;
+  padding: 60px 20px 30px;
+  animation: fadeIn 0.5s ease;
 }
 
-.input-border {
-  position: absolute; top: 0; left: 0; right: 0;
+.welcome-mark {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 64px;
+  color: var(--accent);
+  line-height: 1;
+  margin-bottom: 14px;
+  letter-spacing: -0.03em;
+}
+
+.welcome-title {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 28px;
+  color: var(--text);
+  margin-bottom: 8px;
+  letter-spacing: -0.01em;
+}
+
+.welcome-sub {
+  font-size: 14px;
+  color: var(--text-dim);
+  max-width: 440px;
+  margin: 0 auto 24px;
+  line-height: 1.6;
+}
+
+.welcome-divider {
+  width: 24px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, var(--cyan) 20%, var(--cyan) 80%, transparent);
-  box-shadow: 0 0 10px var(--cyan-glow);
+  background: var(--line);
+  margin: 0 auto 20px;
+}
+
+.welcome-doctrine {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-mute);
+  letter-spacing: 0.05em;
+  max-width: 380px;
+  margin: 0 auto;
+  line-height: 1.7;
+}
+
+.welcome-doctrine .em {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* ============== TYPING / STREAMING ============== */
+.typing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.typing-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.6;
+  animation: typing 1.2s infinite ease-in-out;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.15s; }
+.typing-dot:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes typing {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+.typing-label {
+  margin-left: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+
+/* streaming cursor — subtle blink */
+.cursor {
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  background: var(--accent);
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  animation: cursor-blink 0.9s steps(2) infinite;
+  opacity: 0.8;
+}
+
+@keyframes cursor-blink {
+  0%, 50% { opacity: 0.8; }
+  50.01%, 100% { opacity: 0; }
+}
+
+/* small "refining" badge while critique pass runs */
+.refining-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 2px 8px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 100px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--accent);
+  letter-spacing: 0.05em;
+  animation: fadeIn 0.2s ease;
+}
+
+.refining-badge .badge-dot {
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: breathe 1.4s ease-in-out infinite;
+}
+
+/* ============== INPUT ============== */
+.input-zone {
+  border-top: 1px solid var(--line);
+  padding: 16px 28px;
+  padding-bottom: max(16px, calc(env(safe-area-inset-bottom) + 12px));
+  flex-shrink: 0;
+  background: var(--bg);
 }
 
 /* image preview */
 .preview-strip {
-  display: none; gap: 8px; padding: 8px 0 6px;
+  display: none;
+  gap: 8px;
+  padding-bottom: 10px;
   flex-wrap: wrap;
 }
 .preview-strip.has-images { display: flex; }
+
 .preview-thumb {
-  position: relative; width: 56px; height: 56px;
+  position: relative;
+  width: 56px; height: 56px;
+  border-radius: 8px;
   overflow: hidden;
-  border: 1px solid var(--cyan);
-  box-shadow: 0 0 10px var(--cyan-glow);
+  border: 1px solid var(--line);
 }
 .preview-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .preview-thumb .remove-img {
-  position: absolute; top: 2px; right: 2px;
+  position: absolute;
+  top: 3px; right: 3px;
   width: 18px; height: 18px;
-  background: rgba(3, 6, 10, 0.8);
-  border: 1px solid var(--magenta);
-  color: var(--magenta);
+  background: rgba(10, 10, 10, 0.85);
+  border: none;
+  color: var(--text);
+  border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  cursor: pointer; font-size: 10px;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .input-row {
-  display: flex; gap: 8px; align-items: flex-end;
-  background: rgba(3, 6, 10, 0.6);
-  border: 1px solid var(--edge);
-  padding: 6px 10px;
-  transition: all 0.2s;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 4px 6px 4px 4px;
+  transition: border-color 0.2s ease;
 }
+
 .input-row:focus-within {
-  border-color: var(--cyan);
-  box-shadow: 0 0 18px var(--cyan-glow), inset 0 0 18px rgba(0, 229, 255, 0.04);
+  border-color: var(--text-dim);
 }
 
-.input-prefix {
-  color: var(--cyan); font-family: var(--mono);
-  font-weight: 700; text-shadow: 0 0 6px var(--cyan-glow);
-  padding: 10px 4px 10px 2px; flex-shrink: 0;
-}
-
-.attach-btn, .clear-btn, .send-btn {
-  border: 1px solid var(--edge);
+.icon-btn {
+  width: 38px; height: 38px;
   background: transparent;
+  border: none;
   color: var(--text-dim);
   cursor: pointer;
-  font-family: var(--mono);
-  transition: all 0.2s;
   display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  transition: color 0.2s ease, background 0.2s ease;
   flex-shrink: 0;
 }
 
-.attach-btn {
-  width: 38px; height: 38px;
-}
-.attach-btn:hover, .attach-btn.has-image {
-  border-color: var(--cyan); color: var(--cyan);
-  box-shadow: 0 0 10px var(--cyan-glow);
-}
-.attach-btn svg { width: 16px; height: 16px; }
+.icon-btn:hover { color: var(--text); background: var(--bg-soft); }
+.icon-btn.active { color: var(--accent); }
+.icon-btn svg { width: 18px; height: 18px; }
 
 #userInput {
   flex: 1;
   background: transparent;
-  border: none; outline: none;
+  border: none;
+  outline: none;
   color: var(--text);
-  font-family: var(--mono);
-  font-size: 14px;
+  font-family: var(--sans);
+  font-size: 15px;
   resize: none;
   padding: 10px 4px;
-  min-height: 38px; max-height: 120px;
+  min-height: 38px;
+  max-height: 140px;
   line-height: 1.4;
   min-width: 0;
 }
-#userInput::placeholder { color: var(--text-mute); letter-spacing: 0.08em; }
 
-.clear-btn {
-  padding: 0 12px; height: 38px;
-  font-size: 10px; letter-spacing: 0.2em;
+#userInput::placeholder {
+  color: var(--text-mute);
+  font-style: italic;
+  font-family: var(--serif);
+  font-size: 16px;
 }
-.clear-btn:hover { border-color: var(--magenta); color: var(--magenta); }
 
 .send-btn {
-  height: 38px; padding: 0 14px;
-  background: linear-gradient(135deg, var(--cyan), var(--cyan-dim));
-  color: var(--bg-0);
-  font-weight: 700; font-size: 10px;
-  letter-spacing: 0.25em; gap: 6px;
-  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+  width: 38px; height: 38px;
+  background: var(--accent);
   border: none;
+  color: var(--bg);
+  cursor: pointer;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.2s ease, transform 0.15s ease;
+  flex-shrink: 0;
 }
+
 .send-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #fff, var(--cyan));
-  box-shadow: 0 0 18px var(--cyan);
+  background: var(--text);
+  transform: translateY(-1px);
 }
-.send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.send-btn:disabled {
+  background: var(--line);
+  color: var(--text-mute);
+  cursor: not-allowed;
+}
+
+.send-btn svg { width: 16px; height: 16px; }
 
 .disclaimer {
-  text-align: center; font-size: 9px;
-  color: var(--text-mute); letter-spacing: 0.3em;
-  padding: 6px 0 2px; font-family: var(--mono);
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-mute);
+  letter-spacing: 0.04em;
+  padding: 8px 0 0;
+  font-family: var(--sans);
+  font-weight: 300;
 }
 
-/* ============== TABLET (≤900px) ============== */
-@media (max-width: 900px) {
-  .corner { width: 18px; height: 18px; }
-  .brand-sub { display: none; }
-}
-
-/* ============== MOBILE (≤640px) ============== */
+/* ============== MOBILE ============== */
 @media (max-width: 640px) {
-  /* Hide corner brackets entirely on phones — they take valuable space */
-  .corner { display: none; }
-
-  /* Header: stack tighter, drop the brand subtitle, simplify meta */
   header {
-    padding: 10px 14px;
-    padding-top: max(10px, env(safe-area-inset-top));
-    gap: 10px;
+    padding: 16px 20px;
+    padding-top: max(16px, calc(env(safe-area-inset-top) + 12px));
   }
-  .brand-mark { font-size: 18px; }
-  .brand-name { font-size: 15px; letter-spacing: 0.22em; }
-  .brand-sub { display: none; }
+  .logo-mark { font-size: 28px; }
+  .logo-text { font-size: 13px; }
+  .header-right { gap: 14px; }
+  .status { display: none; } /* breathing dot eats screen real estate */
+  .journal-link { font-size: 12px; }
 
-  /* Meta: drop session clock and "STATUS" label, keep the dot + JOURNAL link */
-  .meta-group { gap: 8px; }
-  .meta-cell:first-child { display: none; } /* hide session clock on mobile */
-  .meta-label { display: none; }
-  .meta-val { font-size: 10px; }
-  .meta-val.status-live { gap: 4px; }
-  /* Show only the pulse dot, not the LIVE text, to save space */
-  .meta-val.status-live .live-text { display: none; }
-
-  .trades-link { padding: 4px 8px; font-size: 9px; letter-spacing: 0.15em; }
-
-  /* Quick prompts: keep horizontal scroll but tighter padding */
   .quick-prompts {
-    padding: 8px 14px;
+    padding: 12px 20px;
     gap: 6px;
   }
-  .quick-btn {
-    padding: 6px 11px;
-    font-size: 9px;
-    letter-spacing: 0.08em;
-  }
+  .quick-btn { font-size: 12px; padding: 6px 12px; }
 
-  /* Chat: tighter padding, full-width bubbles */
-  #chat {
-    padding: 14px;
-    gap: 14px;
-  }
-  .msg-user { max-width: 88%; }
-  .msg-ai { width: 100%; max-width: 100%; }
+  #chat { padding: 20px; gap: 22px; }
+  .msg-user { max-width: 86%; }
+  .msg-user .bubble { padding: 11px 14px; font-size: 14px; }
+  .msg-ai .bubble { font-size: 14px; line-height: 1.65; }
+  .msg-ai .author { font-size: 13px; }
 
-  .bubble {
-    padding: 12px 14px;
-    font-size: 13px;
-    line-height: 1.55;
-  }
-  .msg-ai .bubble { font-size: 12.5px; }
+  .welcome { padding: 40px 16px 20px; }
+  .welcome-mark { font-size: 48px; }
+  .welcome-title { font-size: 22px; }
+  .welcome-sub { font-size: 13px; }
+  .welcome-doctrine { font-size: 10px; }
 
-  /* Welcome block tighter */
-  .welcome-block { padding: 20px 12px; }
-  .welcome-title { font-size: 16px; letter-spacing: 0.18em; }
-  .welcome-sub { font-size: 12px; }
-  .welcome-doctrine { font-size: 9px; padding: 8px 11px; }
+  .bubble h1 { font-size: 19px; }
+  .bubble h2 { font-size: 17px; }
+  .bubble h3 { font-size: 15px; }
 
-  /* Markdown in bubbles */
-  .bubble h2, .bubble h3 { font-size: 13px; }
-  .bubble code, .bubble pre { font-size: 11px; }
-
-  /* Input zone: drop CLEAR button, shrink EXECUTE label, keep attach + send */
   .input-zone {
-    padding: 10px 14px;
-    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    padding: 12px 20px;
+    padding-bottom: max(12px, calc(env(safe-area-inset-bottom) + 8px));
   }
-
-  .input-row {
-    padding: 5px 8px;
-    gap: 6px;
-  }
-  .input-prefix { display: none; } /* hide ▸ prefix to save room */
-
-  .attach-btn { width: 36px; height: 36px; }
-  .attach-btn svg { width: 15px; height: 15px; }
 
   #userInput {
-    font-size: 16px; /* prevents iOS zoom on focus */
-    padding: 9px 2px;
-    min-height: 36px;
+    font-size: 16px; /* prevents iOS zoom */
   }
-
-  /* Hide CLEAR on mobile — long-press on welcome to wipe instead, or use header */
-  .clear-btn { display: none; }
-
-  /* Send button: just an arrow icon, no text */
-  .send-btn {
-    height: 36px;
-    padding: 0 12px;
-    font-size: 0; /* hide EXECUTE text */
-    gap: 0;
-  }
-  .send-btn .send-label { display: none; }
-  .send-btn .send-arrow {
+  #userInput::placeholder {
     font-size: 16px;
-    color: var(--bg-0);
-    font-weight: 900;
   }
-
-  .disclaimer {
-    font-size: 8px;
-    letter-spacing: 0.25em;
-    padding: 5px 0 1px;
-  }
-
-  /* Image previews tighter */
-  .preview-thumb { width: 48px; height: 48px; }
-
-  .typing-label { font-size: 9px; }
 }
 
-/* ============== TINY PHONES (≤380px) ============== */
 @media (max-width: 380px) {
-  header { padding: 8px 12px; gap: 8px; }
-  .brand-name { font-size: 13px; letter-spacing: 0.18em; }
-  .trades-link { font-size: 8px; padding: 3px 7px; }
-
-  .quick-btn { padding: 5px 9px; font-size: 8.5px; }
-
-  #chat { padding: 12px; }
-  .bubble { padding: 10px 12px; font-size: 12.5px; }
-
-  .input-zone { padding: 8px 12px; }
-  .input-row { padding: 4px 6px; gap: 5px; }
-  .attach-btn { width: 34px; height: 34px; }
-  .send-btn { height: 34px; padding: 0 10px; }
+  header { padding: 14px 16px; }
+  .logo-mark { font-size: 26px; }
+  #chat { padding: 16px; }
+  .input-zone { padding: 10px 16px; }
 }
 </style>
 </head>
 <body>
 
-<!-- background layers -->
-<div class="bg-grid"></div>
-<div class="bg-scanline"></div>
-<div class="bg-glow bg-glow-1"></div>
-<div class="bg-glow bg-glow-2"></div>
-
-<!-- corner brackets (desktop only via CSS) -->
-<div class="corner tl"></div>
-<div class="corner tr"></div>
-<div class="corner bl"></div>
-<div class="corner br"></div>
-
 <div class="app">
 
   <header>
-    <div class="brand-block">
-      <span class="brand-mark">◈</span>
-      <div class="brand-text">
-        <div class="brand-name">FINSIGHT</div>
-        <div class="brand-sub">v2.0 // TACTICAL OPS</div>
+    <a href="/" class="logo">
+      <span class="logo-mark">f</span>
+      <span class="logo-text">finsight<span class="light">.</span></span>
+    </a>
+    <div class="header-right">
+      <div class="status">
+        <span class="status-dot"></span>
+        <span>online</span>
       </div>
-    </div>
-    <div class="meta-group">
-      <div class="meta-cell">
-        <span class="meta-label">SESSION</span>
-        <span class="meta-val" id="sessionClock">--:--:--</span>
-      </div>
-      <div class="meta-cell">
-        <span class="meta-label">STATUS</span>
-        <span class="meta-val status-live"><span class="pulse-dot"></span><span class="live-text">LIVE</span></span>
-      </div>
-      <a href="/trades" class="trades-link">◇ JOURNAL</a>
+      <a href="/trades" class="journal-link">Journal →</a>
     </div>
   </header>
 
   <div class="quick-prompts">
-    <button class="quick-btn" onclick="quickSend('3 plays for SPY right now. 0DTE or weekly.')">▸ SPY 0DTE</button>
-    <button class="quick-btn" onclick="quickSend('Give me 3 ranked plays across the market — best setups right now.')">▸ BEST SETUPS</button>
-    <button class="quick-btn" onclick="quickSend('Scan prediction markets for edge. Kalshi + Polymarket. 3 plays.')">▸ PRED MKTS</button>
-    <button class="quick-btn" onclick="quickSend('Analyze NVDA — technicals, news, 3 ranked option plays.')">▸ NVDA</button>
-    <button class="quick-btn" onclick="quickSend('What geopolitical events right now could impact markets? 3 plays tied to them.')">▸ GEO PLAYS</button>
-    <button class="quick-btn" onclick="quickSend('Market overview — SPY, QQQ, VIX, top movers.')">▸ OVERVIEW</button>
-    <button class="quick-btn" onclick="quickSend('Review my recent trades. Be brutal about losing patterns.')">▸ JOURNAL</button>
+    <button class="quick-btn" onclick="quickSend('3 plays for SPY right now. 0DTE or weekly.')">SPY 0DTE</button>
+    <button class="quick-btn" onclick="quickSend('Give me 3 ranked plays across the market — best setups right now.')">Best setups</button>
+    <button class="quick-btn" onclick="quickSend('Scan prediction markets for edge. Kalshi + Polymarket. 3 plays.')">Prediction markets</button>
+    <button class="quick-btn" onclick="quickSend('Analyze NVDA — technicals, news, 3 ranked option plays.')">NVDA</button>
+    <button class="quick-btn" onclick="quickSend('What geopolitical events right now could impact markets? 3 plays tied to them.')">Geo plays</button>
+    <button class="quick-btn" onclick="quickSend('Market overview — SPY, QQQ, VIX, top movers.')">Overview</button>
+    <button class="quick-btn" onclick="quickSend('Review my recent trades. Be brutal about losing patterns.')">Review trades</button>
   </div>
 
   <div id="chat">
-    <div class="welcome-block">
-      <div class="welcome-title">TACTICAL TRADING INTERFACE ACTIVE</div>
-      <div class="welcome-sub">Query the grid. Every trade query returns 3 ranked plays with confidence, R:R, and counter-case analysis. Self-critique pass enabled.</div>
-      <div class="welcome-doctrine">PREMIUM EXPANSION · NOT EXERCISE. 0DTE CONTRACTS ARE VEHICLES FOR PRICE MOVEMENT. SELL. NEVER HOLD.</div>
+    <div class="welcome">
+      <div class="welcome-mark">f</div>
+      <div class="welcome-title">Tactical trading assistant.</div>
+      <div class="welcome-sub">Three ranked plays. Confidence calibrated. Counter-case enforced. Premium expansion, not exercise.</div>
+      <div class="welcome-divider"></div>
+      <div class="welcome-doctrine">
+        Ask anything. Pull market data, scan prediction markets,<br>
+        analyze charts, or just <span class="em">vibe-check the tape</span>.
+      </div>
     </div>
   </div>
 
   <input type="file" id="imageInput" accept="image/*" multiple style="display:none" onchange="handleImageSelect(event)">
 
   <div class="input-zone">
-    <div class="input-border"></div>
     <div class="preview-strip" id="previewStrip"></div>
     <div class="input-row">
-      <span class="input-prefix">▸</span>
-      <button class="attach-btn" id="attachBtn" onclick="document.getElementById('imageInput').click()" title="Attach image" aria-label="Attach image">
+      <button class="icon-btn" id="attachBtn" onclick="document.getElementById('imageInput').click()" title="Attach image" aria-label="Attach image">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="18" height="18" rx="1"/>
-          <circle cx="8.5" cy="8.5" r="1.5"/>
-          <polyline points="21 15 16 10 5 21"/>
+          <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
         </svg>
       </button>
-      <textarea id="userInput" placeholder="Query the grid..." rows="1"></textarea>
-      <button class="clear-btn" onclick="clearChat()">CLEAR</button>
-      <button class="send-btn" id="sendBtn" onclick="sendMessage()" aria-label="Send">
-        <span class="send-label">EXECUTE</span>
-        <span class="send-arrow">→</span>
+      <textarea id="userInput" placeholder="Ask anything..." rows="1"></textarea>
+      <button class="send-btn" id="sendBtn" onclick="sendMessage()" aria-label="Send" disabled>
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+        </svg>
       </button>
     </div>
-    <div class="disclaimer">◇ PAPER TRADING ONLY · NOT FINANCIAL ADVICE ◇</div>
+    <div class="disclaimer">Paper trading only · not financial advice</div>
   </div>
 
 </div>
@@ -752,39 +778,32 @@ header {
 <script>
 let conversationHistory = [];
 let pendingImages = [];
-let sessionStart = Date.now();
 
 const chat = document.getElementById('chat');
 const input = document.getElementById('userInput');
 const sendBtn = document.getElementById('sendBtn');
 const attachBtn = document.getElementById('attachBtn');
 const previewStrip = document.getElementById('previewStrip');
-const clockEl = document.getElementById('sessionClock');
 
-// session clock (only updates if visible — hidden on mobile via CSS)
-setInterval(() => {
-  const elapsed = Math.floor((Date.now() - sessionStart) / 1000);
-  const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
-  const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
-  const s = String(elapsed % 60).padStart(2, '0');
-  clockEl.textContent = `${h}:${m}:${s}`;
-}, 1000);
+// enable/disable send button based on input
+function updateSendBtn() {
+  const hasContent = input.value.trim().length > 0 || pendingImages.length > 0;
+  sendBtn.disabled = !hasContent;
+}
 
-// textarea auto-grow
 input.addEventListener('input', () => {
   input.style.height = 'auto';
-  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+  updateSendBtn();
 });
 
-// only send-on-enter for desktop; mobile uses send button
 input.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 640) {
     e.preventDefault();
-    sendMessage();
+    if (!sendBtn.disabled) sendMessage();
   }
 });
 
-// paste image
 document.addEventListener('paste', e => {
   const items = e.clipboardData?.items || [];
   for (const item of items) {
@@ -809,6 +828,7 @@ function processImageFile(file) {
     const base64 = dataUrl.split(',')[1];
     pendingImages.push({ base64, mediaType: file.type, previewUrl: dataUrl });
     renderPreviews();
+    updateSendBtn();
   };
   reader.readAsDataURL(file);
 }
@@ -817,15 +837,15 @@ function renderPreviews() {
   previewStrip.innerHTML = '';
   if (pendingImages.length === 0) {
     previewStrip.classList.remove('has-images');
-    attachBtn.classList.remove('has-image');
+    attachBtn.classList.remove('active');
     return;
   }
   previewStrip.classList.add('has-images');
-  attachBtn.classList.add('has-image');
+  attachBtn.classList.add('active');
   pendingImages.forEach((img, i) => {
     const thumb = document.createElement('div');
     thumb.className = 'preview-thumb';
-    thumb.innerHTML = `<img src="${img.previewUrl}" alt="attachment"><button class="remove-img" onclick="removeImage(${i})" aria-label="Remove">✕</button>`;
+    thumb.innerHTML = `<img src="${img.previewUrl}" alt=""><button class="remove-img" onclick="removeImage(${i})" aria-label="Remove">✕</button>`;
     previewStrip.appendChild(thumb);
   });
 }
@@ -833,47 +853,51 @@ function renderPreviews() {
 function removeImage(i) {
   pendingImages.splice(i, 1);
   renderPreviews();
+  updateSendBtn();
 }
 
 function quickSend(text) {
   input.value = text;
   input.style.height = 'auto';
+  updateSendBtn();
   sendMessage();
 }
 
 function scrollBottom() {
-  setTimeout(() => { chat.scrollTop = chat.scrollHeight; }, 50);
+  setTimeout(() => { chat.scrollTop = chat.scrollHeight; }, 30);
 }
 
 function addUserMessage(content, imageUrls = []) {
-  const welcome = chat.querySelector('.welcome-block');
+  const welcome = chat.querySelector('.welcome');
   if (welcome) welcome.remove();
 
   const msg = document.createElement('div');
   msg.className = 'msg msg-user';
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
+
   imageUrls.forEach(url => {
     const img = document.createElement('img');
     img.src = url;
     img.className = 'msg-image';
     bubble.appendChild(img);
   });
-  const txt = document.createElement('span');
-  txt.textContent = content;
-  bubble.appendChild(txt);
-  msg.innerHTML = `<div class="msg-label">// OPERATOR</div>`;
+  if (content) {
+    const txt = document.createElement('span');
+    txt.textContent = content;
+    bubble.appendChild(txt);
+  }
   msg.appendChild(bubble);
   chat.appendChild(msg);
   scrollBottom();
 }
 
-function createStreamingBubble() {
+function createAiMessage() {
   const msg = document.createElement('div');
   msg.className = 'msg msg-ai';
   msg.id = 'streaming-msg';
   msg.innerHTML = `
-    <div class="msg-label">FINSIGHT // TACTICAL</div>
+    <div class="author">finsight</div>
     <div class="bubble" id="streaming-bubble"></div>
   `;
   chat.appendChild(msg);
@@ -881,26 +905,21 @@ function createStreamingBubble() {
   return msg.querySelector('#streaming-bubble');
 }
 
-function addTypingIndicator(label = 'ANALYZING') {
+function addTypingIndicator() {
   const msg = document.createElement('div');
-  msg.className = 'msg msg-ai typing';
+  msg.className = 'msg msg-ai';
   msg.id = 'typing';
   msg.innerHTML = `
-    <div class="msg-label">FINSIGHT // TACTICAL</div>
-    <div class="bubble">
-      <div class="typing-dot"></div>
-      <div class="typing-dot"></div>
-      <div class="typing-dot"></div>
-      <span class="typing-label" id="typing-label">${label}</span>
+    <div class="author">finsight</div>
+    <div class="typing">
+      <span class="typing-dot"></span>
+      <span class="typing-dot"></span>
+      <span class="typing-dot"></span>
+      <span class="typing-label">thinking</span>
     </div>
   `;
   chat.appendChild(msg);
   scrollBottom();
-}
-
-function updateTypingLabel(label) {
-  const el = document.getElementById('typing-label');
-  if (el) el.textContent = label;
 }
 
 function removeTypingIndicator() {
@@ -908,22 +927,25 @@ function removeTypingIndicator() {
   if (t) t.remove();
 }
 
-function decorateTradeResponse(bubble) {
-  let html = bubble.innerHTML;
-  html = html.replace(/(━━━[^\n<]*━━━)/g, '<span style="color:var(--cyan); font-weight:700; text-shadow:0 0 6px var(--cyan-glow); display:block; margin:12px 0 6px;">$1</span>');
-  html = html.replace(/CONF (\d+)%/g, (m, p) => {
-    const pct = parseInt(p);
-    const color = pct >= 65 ? 'var(--green)' : pct >= 50 ? 'var(--amber)' : 'var(--red)';
-    return `CONF <span style="color:${color}; font-weight:700; text-shadow:0 0 4px ${color};">${pct}%</span>`;
-  });
-  html = html.replace(/(▸ Counter-case:[^\n<]*)/g, '<span style="color:var(--magenta);">$1</span>');
-  html = html.replace(/(▸ Edge check:[^\n<]*)/g, '<span style="color:var(--magenta);">$1</span>');
-  bubble.innerHTML = html;
+function addRefiningBadge() {
+  const author = document.querySelector('#streaming-msg .author');
+  if (!author || author.querySelector('.refining-badge')) return;
+  const badge = document.createElement('span');
+  badge.className = 'refining-badge';
+  badge.id = 'refining-badge';
+  badge.innerHTML = '<span class="badge-dot"></span>refining';
+  author.appendChild(badge);
+}
+
+function removeRefiningBadge() {
+  const b = document.getElementById('refining-badge');
+  if (b) b.remove();
 }
 
 async function sendMessage() {
   const text = input.value.trim();
-  if ((!text && pendingImages.length === 0) || sendBtn.disabled) return;
+  if (!text && pendingImages.length === 0) return;
+  if (sendBtn.disabled) return;
 
   const imagesToSend = [...pendingImages];
   const previewUrls = imagesToSend.map(i => i.previewUrl);
@@ -935,7 +957,7 @@ async function sendMessage() {
   sendBtn.disabled = true;
   input.blur();
 
-  addUserMessage(text || '📎 Image attached', previewUrls);
+  addUserMessage(text, previewUrls);
 
   let userContent;
   if (imagesToSend.length > 0) {
@@ -952,7 +974,7 @@ async function sendMessage() {
   }
   conversationHistory.push({ role: 'user', content: userContent });
 
-  addTypingIndicator('SCANNING DATA');
+  addTypingIndicator();
 
   try {
     const res = await fetch('/chat', {
@@ -970,9 +992,9 @@ async function sendMessage() {
       const err = await res.json().catch(() => ({ error: 'Server error' }));
       const msg = document.createElement('div');
       msg.className = 'msg msg-ai';
-      msg.innerHTML = `<div class="msg-label">FINSIGHT // ERROR</div><div class="bubble" style="color:var(--red);">❌ ${err.error || 'Server error'}</div>`;
+      msg.innerHTML = `<div class="author">finsight</div><div class="bubble" style="color:var(--red);">Error: ${err.error || 'Server error'}</div>`;
       chat.appendChild(msg);
-      sendBtn.disabled = false;
+      updateSendBtn();
       return;
     }
 
@@ -982,6 +1004,7 @@ async function sendMessage() {
     let fullText = '';
     let buffer = '';
     let cursor = null;
+    let inCritique = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -1000,17 +1023,25 @@ async function sendMessage() {
           const json = JSON.parse(raw);
 
           if (json.status === 'critiquing') {
-            updateTypingLabel('SELF-CRITIQUE');
+            // Critique pass starting — clear the draft, swap to refining mode
+            inCritique = true;
+            fullText = '';
+            if (bubble) {
+              bubble.innerHTML = '';
+              bubble.appendChild(cursor);
+            }
+            addRefiningBadge();
             continue;
           }
 
           const chunk = json.text || '';
           if (chunk) {
+            // First token — set up streaming bubble
             if (!bubble) {
               removeTypingIndicator();
-              bubble = createStreamingBubble();
+              bubble = createAiMessage();
               cursor = document.createElement('span');
-              cursor.className = 'streaming-cursor';
+              cursor.className = 'cursor';
             }
             fullText += chunk;
             bubble.innerHTML = marked.parse(fullText);
@@ -1021,12 +1052,13 @@ async function sendMessage() {
       }
     }
 
+    // Final cleanup
     if (bubble) {
       bubble.innerHTML = marked.parse(fullText || '(no response)');
-      decorateTradeResponse(bubble);
       const streamingMsg = document.getElementById('streaming-msg');
       if (streamingMsg) streamingMsg.id = '';
       bubble.id = '';
+      removeRefiningBadge();
     }
 
     conversationHistory.push({ role: 'assistant', content: fullText });
@@ -1035,47 +1067,38 @@ async function sendMessage() {
     removeTypingIndicator();
     const msg = document.createElement('div');
     msg.className = 'msg msg-ai';
-    msg.innerHTML = `<div class="msg-label">FINSIGHT // ERROR</div><div class="bubble" style="color:var(--red);">❌ Connection error — check internet and retry.</div>`;
+    msg.innerHTML = `<div class="author">finsight</div><div class="bubble" style="color:var(--red);">Connection error. Try again.</div>`;
     chat.appendChild(msg);
   }
 
-  sendBtn.disabled = false;
+  updateSendBtn();
 }
 
-function clearChat() {
-  if (!confirm('Wipe session?')) return;
-  conversationHistory = [];
-  pendingImages = [];
-  renderPreviews();
-  chat.innerHTML = `
-    <div class="welcome-block">
-      <div class="welcome-title">TACTICAL TRADING INTERFACE ACTIVE</div>
-      <div class="welcome-sub">Query the grid. Every trade query returns 3 ranked plays with confidence, R:R, and counter-case analysis.</div>
-      <div class="welcome-doctrine">PREMIUM EXPANSION · NOT EXERCISE. 0DTE CONTRACTS ARE VEHICLES FOR PRICE MOVEMENT. SELL. NEVER HOLD.</div>
-    </div>
-  `;
-}
-
-// long-press on welcome block to clear (mobile substitute for CLEAR button)
+// long-press on chat to wipe (mobile)
 let pressTimer = null;
 chat.addEventListener('touchstart', e => {
-  if (e.target.closest('.welcome-block') || e.target.closest('.bubble')) {
+  if (e.target.closest('.welcome') || e.target.closest('.bubble')) {
     pressTimer = setTimeout(() => {
-      // only enable long-press-clear if there are messages to clear
       if (chat.querySelectorAll('.msg').length > 0) {
-        clearChat();
+        if (confirm('Clear conversation?')) {
+          conversationHistory = [];
+          chat.innerHTML = `
+            <div class="welcome">
+              <div class="welcome-mark">f</div>
+              <div class="welcome-title">Tactical trading assistant.</div>
+              <div class="welcome-sub">Three ranked plays. Confidence calibrated. Counter-case enforced.</div>
+              <div class="welcome-divider"></div>
+              <div class="welcome-doctrine">Ask anything. Pull market data, scan prediction markets,<br>analyze charts, or just <span class="em">vibe-check the tape</span>.</div>
+            </div>
+          `;
+        }
       }
     }, 800);
   }
 }, { passive: true });
-chat.addEventListener('touchend', () => {
-  if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-}, { passive: true });
-chat.addEventListener('touchmove', () => {
-  if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-}, { passive: true });
+chat.addEventListener('touchend', () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } }, { passive: true });
+chat.addEventListener('touchmove', () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } }, { passive: true });
 
-// dynamic viewport height for mobile keyboards
 function fixHeight() {
   document.querySelector('.app').style.height = window.innerHeight + 'px';
 }
